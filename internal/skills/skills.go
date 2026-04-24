@@ -1,0 +1,304 @@
+package skills
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"syscall"
+	"time"
+)
+
+const (
+	defaultSkillsTTL   = 5 * time.Minute
+	defaultBaseURL     = "https://us.fly.customer.io"
+	skillsCacheSubdir  = "cache/skills"
+	skillsCacheFile    = "skills.json"
+	metaFileName       = "meta.json"
+	cacheDirMode       = 0700
+	skillsDownloadSize = 10 << 20 // 10MB max
+	skillsEndpointPath = "/v1/agent/skills"
+)
+
+// Skill represents a single skill in the response.
+type Skill struct {
+	Path        string            `json:"path"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Content     string            `json:"content"`
+	Files       map[string]string `json:"files"`
+}
+
+// SkillsResponse is the full response from GET /v1/agent/skills.
+type SkillsResponse struct {
+	Prompt string  `json:"prompt"`
+	Skills []Skill `json:"skills"`
+}
+
+// LoadOptions configures skills loading behavior.
+type LoadOptions struct {
+	// BaseURL is the API base URL for downloading skills.
+	BaseURL string
+	// ForceRefresh bypasses TTL and re-downloads with ETag validation.
+	ForceRefresh bool
+	// CacheDir overrides the cache directory (for testing).
+	CacheDir string
+	// TTL overrides the cache TTL (default: 5m, env: CIO_SKILLS_TTL).
+	TTL time.Duration
+	// HTTPClient overrides the HTTP client (for testing).
+	HTTPClient *http.Client
+}
+
+type skillsMeta struct {
+	ETag      string    `json:"etag,omitempty"`
+	FetchedAt time.Time `json:"fetched_at"`
+	Size      int64     `json:"size"`
+}
+
+func (o *LoadOptions) resolveBaseURL() string {
+	if o.BaseURL != "" {
+		return o.BaseURL
+	}
+	return defaultBaseURL
+}
+
+func (o *LoadOptions) resolveCacheDir() (string, error) {
+	if o.CacheDir != "" {
+		return o.CacheDir, nil
+	}
+	if v := os.Getenv("CIO_SKILLS_CACHE_DIR"); v != "" {
+		return v, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("get home dir: %w", err)
+	}
+	return filepath.Join(home, ".cio", skillsCacheSubdir), nil
+}
+
+func (o *LoadOptions) resolveTTL() time.Duration {
+	if o.TTL > 0 {
+		return o.TTL
+	}
+	if v := os.Getenv("CIO_SKILLS_TTL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return defaultSkillsTTL
+}
+
+func (o *LoadOptions) resolveHTTPClient() *http.Client {
+	if o.HTTPClient != nil {
+		return o.HTTPClient
+	}
+	return &http.Client{Timeout: 30 * time.Second}
+}
+
+// lockCacheDir acquires an exclusive file lock on the cache directory.
+func lockCacheDir(cacheDir string) (unlock func(), err error) {
+	lockPath := filepath.Join(cacheDir, "skills.lock")
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("open lock file: %w", err)
+	}
+
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("acquire lock: %w", err)
+	}
+
+	return func() {
+		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	}, nil
+}
+
+// EnsureSkills returns the cached skills response, downloading if stale or missing.
+func EnsureSkills(ctx context.Context, opts LoadOptions) (*SkillsResponse, error) {
+	cacheDir, err := opts.resolveCacheDir()
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(cacheDir, cacheDirMode); err != nil {
+		return nil, fmt.Errorf("create cache dir: %w", err)
+	}
+
+	unlock, err := lockCacheDir(cacheDir)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+
+	meta := readMeta(cacheDir)
+	baseURL := opts.resolveBaseURL()
+	ttl := opts.resolveTTL()
+	httpClient := opts.resolveHTTPClient()
+
+	data, err := ensureSkillsData(ctx, httpClient, cacheDir, baseURL, meta, ttl, opts.ForceRefresh)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp SkillsResponse
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("parse skills response: %w", err)
+	}
+	return &resp, nil
+}
+
+func ensureSkillsData(
+	ctx context.Context,
+	httpClient *http.Client,
+	cacheDir, baseURL string,
+	meta *skillsMeta,
+	ttl time.Duration,
+	forceRefresh bool,
+) ([]byte, error) {
+	cachedPath := filepath.Join(cacheDir, skillsCacheFile)
+
+	// Check if cache is fresh.
+	if !forceRefresh && meta.ETag != "" && time.Since(meta.FetchedAt) < ttl {
+		data, err := os.ReadFile(cachedPath)
+		if err == nil {
+			return data, nil
+		}
+		// Cache file missing/corrupt — fall through to download.
+	}
+
+	// Download with conditional request.
+	url := baseURL + skillsEndpointPath
+	newData, newETag, dlErr := downloadSkills(ctx, httpClient, url, meta.ETag)
+	if dlErr != nil {
+		// Try stale cache on download failure.
+		data, readErr := os.ReadFile(cachedPath)
+		if readErr == nil {
+			fmt.Fprintf(os.Stderr, "warning: using stale cached skills (download failed: %v)\n", dlErr)
+			return data, nil
+		}
+		return nil, dlErr
+	}
+
+	if newData == nil {
+		// 304 Not Modified — update timestamp, read from cache.
+		meta.FetchedAt = time.Now().UTC()
+		if err := writeMeta(cacheDir, meta); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to write skills cache metadata: %v\n", err)
+		}
+		data, err := os.ReadFile(cachedPath)
+		if err != nil {
+			return nil, fmt.Errorf("cache file missing after 304: %w", err)
+		}
+		return data, nil
+	}
+
+	// Got new data — write to cache.
+	if err := writeAtomic(cacheDir, skillsCacheFile, newData); err != nil {
+		return nil, fmt.Errorf("write cache: %w", err)
+	}
+
+	meta.ETag = newETag
+	meta.FetchedAt = time.Now().UTC()
+	meta.Size = int64(len(newData))
+	if err := writeMeta(cacheDir, meta); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to write skills cache metadata: %v\n", err)
+	}
+
+	return newData, nil
+}
+
+func downloadSkills(ctx context.Context, httpClient *http.Client, url, etag string) (data []byte, newETag string, err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("Accept", "application/json")
+	if etag != "" {
+		req.Header.Set("If-None-Match", etag)
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("fetch %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusNotModified:
+		return nil, "", nil
+	case http.StatusOK:
+		body, err := io.ReadAll(io.LimitReader(resp.Body, skillsDownloadSize))
+		if err != nil {
+			return nil, "", fmt.Errorf("read response from %s: %w", url, err)
+		}
+		return body, resp.Header.Get("ETag"), nil
+	default:
+		return nil, "", fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+	}
+}
+
+// CacheETag returns the ETag of the currently cached skills, or "" if no cache exists.
+// Useful for testing.
+func CacheETag(opts LoadOptions) string {
+	cacheDir, err := opts.resolveCacheDir()
+	if err != nil {
+		return ""
+	}
+	meta := readMeta(cacheDir)
+	return meta.ETag
+}
+
+// writeAtomic writes data atomically using temp file + rename.
+func writeAtomic(dir, filename string, data []byte) error {
+	tmp, err := os.CreateTemp(dir, filename+".tmp.*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+
+	return os.Rename(tmpName, filepath.Join(dir, filename))
+}
+
+func readMeta(cacheDir string) *skillsMeta {
+	path := filepath.Join(cacheDir, metaFileName)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return &skillsMeta{}
+	}
+
+	var meta skillsMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return &skillsMeta{}
+	}
+	return &meta
+}
+
+func writeMeta(cacheDir string, meta *skillsMeta) error {
+	data, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return writeAtomic(cacheDir, metaFileName, data)
+}
+
+// ComputeETag computes a SHA-256 ETag for the given data.
+func ComputeETag(data []byte) string {
+	h := sha256.Sum256(data)
+	return `"` + hex.EncodeToString(h[:]) + `"`
+}
