@@ -1,0 +1,14 @@
+name: npm publish
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  npm-publish:
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "npm publish scaffold is disabled until package decisions are reviewed."

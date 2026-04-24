@@ -1,0 +1,18 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to prepare, for example v1.2.3"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Release workflow scaffold is disabled until reviewed."

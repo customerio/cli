@@ -1,0 +1,14 @@
+name: Package dry run
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-dry-run:
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Package dry-run scaffold is disabled until reviewed."
