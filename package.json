@@ -1,0 +1,31 @@
+{
+  "name": "@customerio/cio-cli",
+  "version": "0.0.0",
+  "description": "Agent-first CLI for the Customer.io Journeys UI API",
+  "bin": {
+    "cio": ".npm/run.js"
+  },
+  "files": [
+    ".npm/postinstall.js",
+    ".npm/run.js",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "postinstall": "node .npm/postinstall.js"
+  },
+  "optionalDependencies": {
+    "@customerio/cio-cli-darwin-arm64": "0.0.0",
+    "@customerio/cio-cli-darwin-x64": "0.0.0",
+    "@customerio/cio-cli-linux-arm64": "0.0.0",
+    "@customerio/cio-cli-linux-x64": "0.0.0"
+  },
+  "license": "SEE LICENSE IN LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/customerio/cli.git"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}

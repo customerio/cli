@@ -1,0 +1,1675 @@
+{
+  "DELETE /v1/accounts/{account_id}/sso_configuration": {
+    "param_descriptions": {
+      "account_id": "The account ID"
+    },
+    "summary": "Delete SSO configuration"
+  },
+  "DELETE /v1/environments/{environment_id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Delete environment"
+  },
+  "DELETE /v1/environments/{environment_id}/campaigns/{campaign_id}": {
+    "param_descriptions": {
+      "campaign_id": "CampaignID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Delete campaign"
+  },
+  "DELETE /v1/environments/{environment_id}/campaigns/{campaign_id}/tags/{tag_id}": {
+    "param_descriptions": {
+      "campaign_id": "CampaignID parameter",
+      "environment_id": "The workspace (environment) ID",
+      "tag_id": ""
+    },
+    "summary": "Remove tag from campaign"
+  },
+  "DELETE /v1/environments/{environment_id}/collections/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": "Collection identifier"
+    },
+    "summary": "Delete collection"
+  },
+  "DELETE /v1/environments/{environment_id}/customers/{customer_id}": {
+    "param_descriptions": {
+      "customer_id": "CustomerID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Delete customer"
+  },
+  "DELETE /v1/environments/{environment_id}/customers/{customer_id}/devices": {
+    "param_descriptions": {
+      "customer_id": "",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Delete customer devices"
+  },
+  "DELETE /v1/environments/{environment_id}/deliveries/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": "Delivery identifier"
+    },
+    "summary": "Delete delivery"
+  },
+  "DELETE /v1/environments/{environment_id}/domains/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Delete domain"
+  },
+  "DELETE /v1/environments/{environment_id}/imports/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Delete import"
+  },
+  "DELETE /v1/environments/{environment_id}/layouts/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": "Layout identifier"
+    },
+    "summary": "Delete layout"
+  },
+  "DELETE /v1/environments/{environment_id}/newsletters/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": "Newsletter identifier"
+    },
+    "summary": "Delete newsletter"
+  },
+  "DELETE /v1/environments/{environment_id}/newsletters/{id}/tags/{tag_id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": "",
+      "tag_id": ""
+    },
+    "summary": "Remove tag from newsletter"
+  },
+  "DELETE /v1/environments/{environment_id}/object_types/{type_id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "type_id": ""
+    },
+    "summary": "Delete object type"
+  },
+  "DELETE /v1/environments/{environment_id}/object_types/{type_id}/objects/{cio_object_id}": {
+    "param_descriptions": {
+      "cio_object_id": "CIO object identifier",
+      "environment_id": "The workspace (environment) ID",
+      "type_id": ""
+    },
+    "summary": "Delete object"
+  },
+  "DELETE /v1/environments/{environment_id}/relationships": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Delete relationship"
+  },
+  "DELETE /v1/environments/{environment_id}/segments/{segment_id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "segment_id": "SegmentID parameter"
+    },
+    "summary": "Delete segment"
+  },
+  "DELETE /v1/environments/{environment_id}/snippets/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": "Snippet identifier"
+    },
+    "summary": "Delete snippet"
+  },
+  "DELETE /v1/environments/{environment_id}/tags/{tag_id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "tag_id": ""
+    },
+    "summary": "Delete tag"
+  },
+  "DELETE /v1/environments/{environment_id}/templates/{template_id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "template_id": "TemplateID parameter"
+    },
+    "summary": "Delete template"
+  },
+  "DELETE /v1/environments/{environment_id}/transactional_messages/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Delete transactional message"
+  },
+  "DELETE /v1/environments/{environment_id}/transactional_messages/{transactional_message_id}/tags/{tag_id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "tag_id": "",
+      "transactional_message_id": ""
+    },
+    "summary": "Remove tag from transactional message"
+  },
+  "DELETE /v1/environments/{environment_id}/webhook_configurations/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Delete webhook configuration"
+  },
+  "GET /v1/accounts/{account_id}": {
+    "param_descriptions": {
+      "account_id": "The account ID"
+    },
+    "summary": "Get account"
+  },
+  "GET /v1/accounts/{account_id}/audit_logs": {
+    "param_descriptions": {
+      "account_id": "The account ID"
+    },
+    "summary": "List account audit logs"
+  },
+  "GET /v1/accounts/{account_id}/environments": {
+    "param_descriptions": {
+      "account_id": "The account ID"
+    },
+    "summary": "List environments"
+  },
+  "GET /v1/accounts/{account_id}/sso_configuration": {
+    "param_descriptions": {
+      "account_id": "The account ID"
+    },
+    "summary": "Get SSO configuration"
+  },
+  "GET /v1/accounts/{account_id}/usage": {
+    "param_descriptions": {
+      "account_id": "The account ID"
+    },
+    "summary": "Get account usage"
+  },
+  "GET /v1/accounts/{account_id}/users": {
+    "param_descriptions": {
+      "account_id": "The account ID"
+    },
+    "summary": "List users"
+  },
+  "GET /v1/environments/{environment_id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get environment"
+  },
+  "GET /v1/environments/{environment_id}/actions/{action_id}": {
+    "param_descriptions": {
+      "action_id": "ActionID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get action"
+  },
+  "GET /v1/environments/{environment_id}/actions/{action_id}/metrics": {
+    "param_descriptions": {
+      "action_id": "ActionID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get action metrics"
+  },
+  "GET /v1/environments/{environment_id}/actions/{action_id}/split_metrics": {
+    "param_descriptions": {
+      "action_id": "ActionID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get A/B test split metrics"
+  },
+  "GET /v1/environments/{environment_id}/actions/{action_id}/subjects": {
+    "param_descriptions": {
+      "action_id": "ActionID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get subjects at action"
+  },
+  "GET /v1/environments/{environment_id}/actions/{action_id}/variables": {
+    "param_descriptions": {
+      "action_id": "ActionID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get action template variables"
+  },
+  "GET /v1/environments/{environment_id}/all_metrics": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get all environment metrics"
+  },
+  "GET /v1/environments/{environment_id}/attributes": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "List customer attributes"
+  },
+  "GET /v1/environments/{environment_id}/audit_log/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Get workspace audit log entry"
+  },
+  "GET /v1/environments/{environment_id}/audit_logs": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "List workspace audit logs"
+  },
+  "GET /v1/environments/{environment_id}/campaigns": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "size": "Size parameter"
+    },
+    "query_params": [
+      {
+        "description": "Page number",
+        "name": "page",
+        "required": false,
+        "type": "integer"
+      },
+      {
+        "description": "Field to sort by",
+        "name": "sort",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "description": "Sort direction",
+        "name": "asc",
+        "required": false,
+        "type": "boolean"
+      },
+      {
+        "description": "Filter by campaign type (can specify multiple)",
+        "name": "type",
+        "required": false,
+        "type": "array"
+      },
+      {
+        "description": "Filter by campaign state",
+        "name": "state",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "description": "Search campaign names",
+        "name": "search",
+        "required": false,
+        "type": "string"
+      }
+    ],
+    "summary": "List campaigns"
+  },
+  "GET /v1/environments/{environment_id}/campaigns/{campaign_id}": {
+    "param_descriptions": {
+      "campaign_id": "CampaignID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get campaign"
+  },
+  "GET /v1/environments/{environment_id}/campaigns/{campaign_id}/action_metrics": {
+    "param_descriptions": {
+      "campaign_id": "CampaignID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get all action metrics for campaign"
+  },
+  "GET /v1/environments/{environment_id}/campaigns/{campaign_id}/action_status": {
+    "param_descriptions": {
+      "campaign_id": "CampaignID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get action status counts"
+  },
+  "GET /v1/environments/{environment_id}/campaigns/{campaign_id}/channel_metrics": {
+    "param_descriptions": {
+      "campaign_id": "CampaignID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get campaign channel metrics"
+  },
+  "GET /v1/environments/{environment_id}/campaigns/{campaign_id}/journey_metrics": {
+    "param_descriptions": {
+      "campaign_id": "CampaignID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get campaign journey metrics"
+  },
+  "GET /v1/environments/{environment_id}/campaigns/{campaign_id}/metrics": {
+    "param_descriptions": {
+      "campaign_id": "CampaignID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get campaign metrics"
+  },
+  "GET /v1/environments/{environment_id}/campaigns/{campaign_id}/next": {
+    "param_descriptions": {
+      "campaign_id": "CampaignID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get next scheduled profiles"
+  },
+  "GET /v1/environments/{environment_id}/campaigns/{campaign_id}/notes": {
+    "param_descriptions": {
+      "campaign_id": "CampaignID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get sticky notes"
+  },
+  "GET /v1/environments/{environment_id}/campaigns/{campaign_id}/split_metrics": {
+    "param_descriptions": {
+      "campaign_id": "CampaignID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get campaign split metrics"
+  },
+  "GET /v1/environments/{environment_id}/campaigns/{campaign_id}/triggers": {
+    "param_descriptions": {
+      "campaign_id": "CampaignID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "List broadcast triggers"
+  },
+  "GET /v1/environments/{environment_id}/campaigns/{campaign_id}/versions": {
+    "param_descriptions": {
+      "campaign_id": "CampaignID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "query_params": [
+      {
+        "description": "Start from this version number",
+        "name": "from_version",
+        "required": false,
+        "type": "integer"
+      },
+      {
+        "description": "Max versions to return",
+        "name": "limit",
+        "required": false,
+        "type": "integer"
+      }
+    ],
+    "summary": "List campaign versions"
+  },
+  "GET /v1/environments/{environment_id}/campaigns/{campaign_id}/versions/{version}": {
+    "param_descriptions": {
+      "campaign_id": "CampaignID parameter",
+      "environment_id": "The workspace (environment) ID",
+      "version": ""
+    },
+    "summary": "Get campaign version"
+  },
+  "GET /v1/environments/{environment_id}/collection_items": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "query_params": [
+      {
+        "description": "Collection identifier",
+        "name": "collection_id",
+        "required": true,
+        "type": "integer"
+      },
+      {
+        "description": "Field to sort by",
+        "name": "order_by",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "description": "Sort ascending",
+        "name": "asc",
+        "required": false,
+        "type": "boolean"
+      },
+      {
+        "description": "Base64-encoded filter conditions",
+        "name": "conditions",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "description": "Page number",
+        "name": "page",
+        "required": false,
+        "type": "integer"
+      },
+      {
+        "description": "",
+        "name": "limit",
+        "required": false,
+        "type": "integer"
+      }
+    ],
+    "summary": "List collection items"
+  },
+  "GET /v1/environments/{environment_id}/collections": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "List collections"
+  },
+  "GET /v1/environments/{environment_id}/collections/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": "Collection identifier"
+    },
+    "summary": "Get collection"
+  },
+  "GET /v1/environments/{environment_id}/customers": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "search": "Search parameter",
+      "size": "Size parameter"
+    },
+    "query_params": [
+      {
+        "description": "Page number",
+        "name": "page",
+        "required": false,
+        "type": "integer"
+      }
+    ],
+    "summary": "List customers"
+  },
+  "GET /v1/environments/{environment_id}/customers/{customer_id}": {
+    "param_descriptions": {
+      "customer_id": "CustomerID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get customer"
+  },
+  "GET /v1/environments/{environment_id}/customers/{customer_id}/optouts": {
+    "param_descriptions": {
+      "customer_id": "CustomerID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get customer opt-outs"
+  },
+  "GET /v1/environments/{environment_id}/customers/{customer_id}/segments": {
+    "param_descriptions": {
+      "customer_id": "Customer identifier",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get customer's segments"
+  },
+  "GET /v1/environments/{environment_id}/customers_suppression_count": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get suppression count"
+  },
+  "GET /v1/environments/{environment_id}/data_index/attributes": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get data index attributes"
+  },
+  "GET /v1/environments/{environment_id}/data_index/events": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get data index events"
+  },
+  "GET /v1/environments/{environment_id}/data_index/object_attributes/{type_id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "type_id": ""
+    },
+    "summary": "Get object type attributes"
+  },
+  "GET /v1/environments/{environment_id}/deliveries": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "query_params": [
+      {
+        "description": "Page size",
+        "name": "size",
+        "required": false,
+        "type": "integer"
+      },
+      {
+        "description": "Continuation token for pagination",
+        "name": "continuation",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "description": "Start timestamp filter",
+        "name": "start_ts",
+        "required": false,
+        "type": "integer"
+      },
+      {
+        "description": "End timestamp filter",
+        "name": "end_ts",
+        "required": false,
+        "type": "integer"
+      },
+      {
+        "description": "Filter by campaign ID",
+        "name": "campaign_id",
+        "required": false,
+        "type": "integer"
+      },
+      {
+        "description": "Filter by newsletter ID",
+        "name": "newsletter_id",
+        "required": false,
+        "type": "integer"
+      },
+      {
+        "description": "Filter by customer ID",
+        "name": "customer_id",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "description": "Filter by recipient address",
+        "name": "recipient",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "description": "Filter by delivery status",
+        "name": "metric",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "description": "Filter by message type",
+        "name": "type",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "description": "Include draft messages",
+        "name": "drafts",
+        "required": false,
+        "type": "boolean"
+      }
+    ],
+    "summary": "List deliveries"
+  },
+  "GET /v1/environments/{environment_id}/deliveries/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": "Delivery identifier"
+    },
+    "summary": "Get delivery"
+  },
+  "GET /v1/environments/{environment_id}/delivery_address_completions": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "query_params": [
+      {
+        "description": "Search query",
+        "name": "q",
+        "required": false,
+        "type": "string"
+      }
+    ],
+    "summary": "Get delivery address completions"
+  },
+  "GET /v1/environments/{environment_id}/delivery_details/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": "Delivery identifier"
+    },
+    "summary": "Get delivery details"
+  },
+  "GET /v1/environments/{environment_id}/delivery_details/{id}/edit": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": "Delivery identifier"
+    },
+    "summary": "Get delivery details for editing"
+  },
+  "GET /v1/environments/{environment_id}/domains": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "List domains"
+  },
+  "GET /v1/environments/{environment_id}/domains/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Get domain"
+  },
+  "GET /v1/environments/{environment_id}/event_names": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "List event names"
+  },
+  "GET /v1/environments/{environment_id}/exports": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "List exports"
+  },
+  "GET /v1/environments/{environment_id}/exports/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Get export"
+  },
+  "GET /v1/environments/{environment_id}/imports": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "List imports"
+  },
+  "GET /v1/environments/{environment_id}/imports/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Get import"
+  },
+  "GET /v1/environments/{environment_id}/layouts": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "query_params": [
+      {
+        "description": "Filter by archived status",
+        "name": "archived",
+        "required": false,
+        "type": "boolean"
+      },
+      {
+        "description": "Include starter layouts",
+        "name": "starters",
+        "required": false,
+        "type": "boolean"
+      }
+    ],
+    "summary": "List layouts"
+  },
+  "GET /v1/environments/{environment_id}/layouts/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": "Layout identifier"
+    },
+    "summary": "Get layout"
+  },
+  "GET /v1/environments/{environment_id}/layouts/{id}/actions": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Get actions using layout"
+  },
+  "GET /v1/environments/{environment_id}/layouts/{id}/newsletters": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Get newsletters using layout"
+  },
+  "GET /v1/environments/{environment_id}/layouts/{id}/transactional_messages": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Get transactional messages using layout"
+  },
+  "GET /v1/environments/{environment_id}/newsletters": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "search": "Search parameter",
+      "sort": "Sort parameter"
+    },
+    "query_params": [
+      {
+        "description": "Page number",
+        "name": "page",
+        "required": false,
+        "type": "integer"
+      },
+      {
+        "description": "Filter by newsletter type",
+        "name": "type",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "description": "Filter by channel",
+        "name": "channel",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "description": "Filter by tag IDs",
+        "name": "tagIds",
+        "required": false,
+        "type": "array"
+      }
+    ],
+    "summary": "List newsletters"
+  },
+  "GET /v1/environments/{environment_id}/newsletters/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": "Newsletter identifier"
+    },
+    "summary": "Get newsletter"
+  },
+  "GET /v1/environments/{environment_id}/newsletters/{id}/counts": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Get newsletter recipient counts"
+  },
+  "GET /v1/environments/{environment_id}/newsletters/{id}/metrics": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Get newsletter metrics"
+  },
+  "GET /v1/environments/{environment_id}/newsletters/{id}/schedule": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Get newsletter schedule"
+  },
+  "GET /v1/environments/{environment_id}/newsletters/{id}/segments": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Get newsletter segments"
+  },
+  "GET /v1/environments/{environment_id}/newsletters/{id}/send_status": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Get newsletter send status"
+  },
+  "GET /v1/environments/{environment_id}/newsletters/{id}/template_metrics": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Get newsletter variation metrics"
+  },
+  "GET /v1/environments/{environment_id}/newsletters/{id}/templates": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Get newsletter templates"
+  },
+  "GET /v1/environments/{environment_id}/object_type_snippets": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "List object type snippets"
+  },
+  "GET /v1/environments/{environment_id}/object_types": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "List object types"
+  },
+  "GET /v1/environments/{environment_id}/object_types/{type_id}/objects": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "type_id": ""
+    },
+    "summary": "List objects"
+  },
+  "GET /v1/environments/{environment_id}/object_types/{type_id}/objects/{identifier}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "identifier": "Object identifier or cio_object_id",
+      "type_id": ""
+    },
+    "summary": "Get object"
+  },
+  "GET /v1/environments/{environment_id}/relationships/customers/related_to/{cio_object_id}": {
+    "param_descriptions": {
+      "cio_object_id": "Object identifier (cio_object_id)",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "List customers related to object"
+  },
+  "GET /v1/environments/{environment_id}/relationships/objects/related_to/{cio_id}": {
+    "param_descriptions": {
+      "cio_id": "Customer or object CIO identifier",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "List related objects"
+  },
+  "GET /v1/environments/{environment_id}/relationships/objects/related_to_all_types/{cio_id}": {
+    "param_descriptions": {
+      "cio_id": "Customer or object CIO identifier",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "List related objects by type"
+  },
+  "GET /v1/environments/{environment_id}/search": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "query_params": [
+      {
+        "description": "Search query",
+        "name": "q",
+        "required": true,
+        "type": "string"
+      }
+    ],
+    "summary": "Search"
+  },
+  "GET /v1/environments/{environment_id}/segments": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "search": "Search parameter"
+    },
+    "query_params": [
+      {
+        "description": "Page size (set > 0 to enable pagination)",
+        "name": "size",
+        "required": false,
+        "type": "integer"
+      },
+      {
+        "description": "Page number",
+        "name": "page",
+        "required": false,
+        "type": "integer"
+      },
+      {
+        "description": "Filter by segment type",
+        "name": "type",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "description": "Filter by tag IDs (JSON array)",
+        "name": "searchTagIds",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "description": "Filter by archived status (only for paginated mode)",
+        "name": "archived",
+        "required": false,
+        "type": "boolean"
+      },
+      {
+        "description": "Filter by usage status",
+        "name": "usage",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "description": "Return lightweight list (id, name, type only)",
+        "name": "short",
+        "required": false,
+        "type": "boolean"
+      }
+    ],
+    "summary": "List segments"
+  },
+  "GET /v1/environments/{environment_id}/segments/{segment_id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "segment_id": "SegmentID parameter"
+    },
+    "summary": "Get segment"
+  },
+  "GET /v1/environments/{environment_id}/segments/{segment_id}/count": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "segment_id": "SegmentID parameter"
+    },
+    "summary": "Get segment count"
+  },
+  "GET /v1/environments/{environment_id}/segments/{segment_id}/metrics": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "segment_id": "SegmentID parameter"
+    },
+    "summary": "Get segment metrics"
+  },
+  "GET /v1/environments/{environment_id}/segments/{segment_id}/status": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "segment_id": "SegmentID parameter"
+    },
+    "summary": "Get segment backfill status"
+  },
+  "GET /v1/environments/{environment_id}/segments/{segment_id}/usage": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "segment_id": "SegmentID parameter"
+    },
+    "summary": "Get segment usage"
+  },
+  "GET /v1/environments/{environment_id}/segments_suggestions": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get AI segment suggestions"
+  },
+  "GET /v1/environments/{environment_id}/segments_usage": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get batch segment usage"
+  },
+  "GET /v1/environments/{environment_id}/settings/workspace": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get workspace settings"
+  },
+  "GET /v1/environments/{environment_id}/signing_secret": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Get signing secret"
+  },
+  "GET /v1/environments/{environment_id}/snippets": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "search": "Search parameter",
+      "sort": "Sort parameter"
+    },
+    "query_params": [
+      {
+        "description": "Page number",
+        "name": "page",
+        "required": false,
+        "type": "integer"
+      },
+      {
+        "description": "",
+        "name": "limit",
+        "required": false,
+        "type": "integer"
+      },
+      {
+        "description": "Sort ascending",
+        "name": "asc",
+        "required": false,
+        "type": "boolean"
+      }
+    ],
+    "summary": "List snippets"
+  },
+  "GET /v1/environments/{environment_id}/snippets/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": "Snippet identifier"
+    },
+    "summary": "Get snippet"
+  },
+  "GET /v1/environments/{environment_id}/snippets/{id}/usage/{continuation}": {
+    "param_descriptions": {
+      "continuation": "Continuation token for pagination",
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Get snippet usage"
+  },
+  "GET /v1/environments/{environment_id}/subjects/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": "Subject identifier"
+    },
+    "summary": "Get subject"
+  },
+  "GET /v1/environments/{environment_id}/subscription_topics": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "List subscription topics"
+  },
+  "GET /v1/environments/{environment_id}/suppression/{type}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "type": "Suppression type (bounced, manual, unsubscribed, complained)"
+    },
+    "summary": "List suppressions"
+  },
+  "GET /v1/environments/{environment_id}/tags": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "List tags"
+  },
+  "GET /v1/environments/{environment_id}/tags/{tag_id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "tag_id": ""
+    },
+    "summary": "Get tag"
+  },
+  "GET /v1/environments/{environment_id}/templates": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "search": "Search parameter"
+    },
+    "query_params": [
+      {
+        "description": "Page number",
+        "name": "page",
+        "required": false,
+        "type": "integer"
+      },
+      {
+        "description": "Number of items per page",
+        "name": "page_size",
+        "required": false,
+        "type": "integer"
+      },
+      {
+        "description": "Filter by channel type",
+        "name": "channel",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "description": "Filter by editor type",
+        "name": "editor",
+        "required": false,
+        "type": "string"
+      }
+    ],
+    "summary": "List templates"
+  },
+  "GET /v1/environments/{environment_id}/templates/{template_id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "template_id": "TemplateID parameter"
+    },
+    "summary": "Get template"
+  },
+  "GET /v1/environments/{environment_id}/templates/{template_id}/variables": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "template_id": "TemplateID parameter"
+    },
+    "summary": "Get template variables"
+  },
+  "GET /v1/environments/{environment_id}/transactional_messages": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "List transactional messages"
+  },
+  "GET /v1/environments/{environment_id}/transactional_messages/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Get transactional message"
+  },
+  "GET /v1/environments/{environment_id}/transactional_messages/{transactional_message_id}/metrics": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "transactional_message_id": ""
+    },
+    "summary": "Get transactional message metrics"
+  },
+  "GET /v1/environments/{environment_id}/webhook_configurations": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "List webhook configurations"
+  },
+  "GET /v1/environments/{environment_id}/webhook_configurations/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Get webhook configuration"
+  },
+  "POST /v1/accounts/{account_id}/environments": {
+    "param_descriptions": {
+      "account_id": "The account ID"
+    },
+    "summary": "Create environment"
+  },
+  "POST /v1/accounts/{account_id}/sso_configuration": {
+    "param_descriptions": {
+      "account_id": "The account ID"
+    },
+    "summary": "Create SSO configuration"
+  },
+  "POST /v1/environments/{environment_id}/audit_logs/export": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Export workspace audit logs"
+  },
+  "POST /v1/environments/{environment_id}/campaigns": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Create campaign"
+  },
+  "POST /v1/environments/{environment_id}/campaigns/{campaign_id}/duplicate": {
+    "param_descriptions": {
+      "campaign_id": "CampaignID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Duplicate campaign"
+  },
+  "POST /v1/environments/{environment_id}/campaigns/{campaign_id}/notes": {
+    "param_descriptions": {
+      "campaign_id": "CampaignID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Create sticky note"
+  },
+  "POST /v1/environments/{environment_id}/campaigns/{campaign_id}/tags": {
+    "param_descriptions": {
+      "campaign_id": "CampaignID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Add tag to campaign"
+  },
+  "POST /v1/environments/{environment_id}/campaigns/{campaign_id}/triggers": {
+    "param_descriptions": {
+      "campaign_id": "CampaignID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Fire broadcast trigger"
+  },
+  "POST /v1/environments/{environment_id}/collections": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Create collection"
+  },
+  "POST /v1/environments/{environment_id}/collections/query": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Query collection"
+  },
+  "POST /v1/environments/{environment_id}/collections/sign": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Generate collection upload signature"
+  },
+  "POST /v1/environments/{environment_id}/create_newsletter_from_template": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Create newsletter from template"
+  },
+  "POST /v1/environments/{environment_id}/customers": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Create customer"
+  },
+  "POST /v1/environments/{environment_id}/customers/delete": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Bulk delete customers"
+  },
+  "POST /v1/environments/{environment_id}/customers/exports": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Export customers"
+  },
+  "POST /v1/environments/{environment_id}/customers/merge": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Merge customer profiles"
+  },
+  "POST /v1/environments/{environment_id}/customers/merge/preview": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Preview customer merge"
+  },
+  "POST /v1/environments/{environment_id}/customers/subscribe": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Bulk subscribe customers"
+  },
+  "POST /v1/environments/{environment_id}/customers/unsubscribe": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Bulk unsubscribe customers"
+  },
+  "POST /v1/environments/{environment_id}/customers/unsuppress": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Unsuppress customers"
+  },
+  "POST /v1/environments/{environment_id}/delete_suppression": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Delete suppression"
+  },
+  "POST /v1/environments/{environment_id}/domains": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Create domain"
+  },
+  "POST /v1/environments/{environment_id}/estimate_conditions": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Estimate conditions match count"
+  },
+  "POST /v1/environments/{environment_id}/events": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Send event"
+  },
+  "POST /v1/environments/{environment_id}/imports": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Create import"
+  },
+  "POST /v1/environments/{environment_id}/imports/sign": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Generate import upload signature"
+  },
+  "POST /v1/environments/{environment_id}/imports/validate": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Validate import"
+  },
+  "POST /v1/environments/{environment_id}/layouts": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Create layout"
+  },
+  "POST /v1/environments/{environment_id}/layouts/{id}/archived": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Toggle layout archived state"
+  },
+  "POST /v1/environments/{environment_id}/layouts/{id}/default": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Set layout as default"
+  },
+  "POST /v1/environments/{environment_id}/newsletters": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Create newsletter"
+  },
+  "POST /v1/environments/{environment_id}/newsletters/{id}/copy": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Copy newsletter"
+  },
+  "POST /v1/environments/{environment_id}/newsletters/{id}/forward": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Forward newsletter (send/schedule)"
+  },
+  "POST /v1/environments/{environment_id}/newsletters/{id}/tags": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Add tag to newsletter"
+  },
+  "POST /v1/environments/{environment_id}/newsletters/{id}/translations": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Create newsletter translations"
+  },
+  "POST /v1/environments/{environment_id}/object_types": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Create object type"
+  },
+  "POST /v1/environments/{environment_id}/object_types/{type_id}/objects": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "type_id": ""
+    },
+    "summary": "Create object"
+  },
+  "POST /v1/environments/{environment_id}/object_types/{type_id}/objects/delete": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "type_id": ""
+    },
+    "summary": "Bulk delete objects"
+  },
+  "POST /v1/environments/{environment_id}/object_types/{type_id}/objects/exports": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "type_id": ""
+    },
+    "summary": "Export objects"
+  },
+  "POST /v1/environments/{environment_id}/relationships": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Create relationship"
+  },
+  "POST /v1/environments/{environment_id}/segments": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Create segment"
+  },
+  "POST /v1/environments/{environment_id}/segments/archive": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Archive segments"
+  },
+  "POST /v1/environments/{environment_id}/segments/delete": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Batch delete segments"
+  },
+  "POST /v1/environments/{environment_id}/segments/unarchive": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Unarchive segments"
+  },
+  "POST /v1/environments/{environment_id}/segments/{segment_id}/tags": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "segment_id": "SegmentID parameter"
+    },
+    "summary": "Add tag to segment"
+  },
+  "POST /v1/environments/{environment_id}/segments/{segment_id}/tags_delete/{tag_id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "segment_id": "SegmentID parameter",
+      "tag_id": ""
+    },
+    "summary": "Remove tag from segment"
+  },
+  "POST /v1/environments/{environment_id}/snippets": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Create snippet"
+  },
+  "POST /v1/environments/{environment_id}/tags": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Create tag"
+  },
+  "POST /v1/environments/{environment_id}/templates": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Create template"
+  },
+  "POST /v1/environments/{environment_id}/templates/analyze": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Analyze template with AI"
+  },
+  "POST /v1/environments/{environment_id}/templates/generate": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Generate template with AI"
+  },
+  "POST /v1/environments/{environment_id}/transactional_messages": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Create transactional message"
+  },
+  "POST /v1/environments/{environment_id}/transactional_messages/{transactional_message_id}/cancel": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "transactional_message_id": ""
+    },
+    "summary": "Cancel transactional message"
+  },
+  "POST /v1/environments/{environment_id}/transactional_messages/{transactional_message_id}/copy": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "transactional_message_id": ""
+    },
+    "summary": "Copy transactional message"
+  },
+  "POST /v1/environments/{environment_id}/transactional_messages/{transactional_message_id}/tags": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "transactional_message_id": ""
+    },
+    "summary": "Add tag to transactional message"
+  },
+  "POST /v1/environments/{environment_id}/transactional_messages/{transactional_message_id}/translations": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "transactional_message_id": ""
+    },
+    "summary": "Create transactional message translations"
+  },
+  "POST /v1/environments/{environment_id}/transactional_messages_cancel/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": "Delivery ID to cancel"
+    },
+    "summary": "Cancel specific transactional delivery"
+  },
+  "POST /v1/environments/{environment_id}/webhook_configurations": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Create webhook configuration"
+  },
+  "PUT /v1/accounts/{account_id}": {
+    "param_descriptions": {
+      "account_id": "The account ID"
+    },
+    "summary": "Update account"
+  },
+  "PUT /v1/accounts/{account_id}/sso_configuration": {
+    "param_descriptions": {
+      "account_id": "The account ID"
+    },
+    "summary": "Update SSO configuration"
+  },
+  "PUT /v1/environments/{environment_id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Update environment"
+  },
+  "PUT /v1/environments/{environment_id}/actions/{action_id}": {
+    "param_descriptions": {
+      "action_id": "ActionID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Update action"
+  },
+  "PUT /v1/environments/{environment_id}/campaigns/{campaign_id}": {
+    "param_descriptions": {
+      "campaign_id": "CampaignID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Update campaign"
+  },
+  "PUT /v1/environments/{environment_id}/collections/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": "Collection identifier"
+    },
+    "summary": "Update collection"
+  },
+  "PUT /v1/environments/{environment_id}/customers/{customer_id}": {
+    "param_descriptions": {
+      "customer_id": "CustomerID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Update customer"
+  },
+  "PUT /v1/environments/{environment_id}/customers/{customer_id}/optouts": {
+    "param_descriptions": {
+      "customer_id": "CustomerID parameter",
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Update customer opt-outs"
+  },
+  "PUT /v1/environments/{environment_id}/domains/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Update domain"
+  },
+  "PUT /v1/environments/{environment_id}/imports/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Update import"
+  },
+  "PUT /v1/environments/{environment_id}/layouts/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": "Layout identifier"
+    },
+    "summary": "Update layout"
+  },
+  "PUT /v1/environments/{environment_id}/newsletters/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": "Newsletter identifier"
+    },
+    "summary": "Update newsletter"
+  },
+  "PUT /v1/environments/{environment_id}/object_types/{type_id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "type_id": ""
+    },
+    "summary": "Update object type"
+  },
+  "PUT /v1/environments/{environment_id}/object_types/{type_id}/objects/{identifier}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "identifier": "Object identifier or cio_object_id",
+      "type_id": ""
+    },
+    "summary": "Upsert object"
+  },
+  "PUT /v1/environments/{environment_id}/segments/{segment_id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "segment_id": "SegmentID parameter"
+    },
+    "summary": "Update segment"
+  },
+  "PUT /v1/environments/{environment_id}/segments/{segment_id}/members": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "segment_id": "SegmentID parameter"
+    },
+    "summary": "Manage static segment membership"
+  },
+  "PUT /v1/environments/{environment_id}/settings/workspace": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Update workspace settings"
+  },
+  "PUT /v1/environments/{environment_id}/signing_secret": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID"
+    },
+    "summary": "Rotate signing secret"
+  },
+  "PUT /v1/environments/{environment_id}/snippets/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": "Snippet identifier"
+    },
+    "summary": "Update snippet"
+  },
+  "PUT /v1/environments/{environment_id}/tags/{tag_id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "tag_id": ""
+    },
+    "summary": "Update tag"
+  },
+  "PUT /v1/environments/{environment_id}/templates/{template_id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "template_id": "TemplateID parameter"
+    },
+    "summary": "Update template"
+  },
+  "PUT /v1/environments/{environment_id}/transactional_messages/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Update transactional message"
+  },
+  "PUT /v1/environments/{environment_id}/webhook_configurations/{id}": {
+    "param_descriptions": {
+      "environment_id": "The workspace (environment) ID",
+      "id": ""
+    },
+    "summary": "Update webhook configuration"
+  }
+}
