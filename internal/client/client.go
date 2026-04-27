@@ -14,10 +14,18 @@ import (
 	"time"
 )
 
-// setAgentHeader stamps X-CIO-Agent onto req when the CIO_AGENT env var is
-// set to "1". The sandbox that runs the CLI on behalf of the AI agent sets
-// this var so downstream metrics can attribute traffic to the agent.
-func setAgentHeader(req *http.Request) {
+// setStandardHeaders stamps headers that every outgoing CLI request should
+// carry:
+//
+//   - X-Validate: strict — opts into strict server-side JSON validation so
+//     that unknown/typo'd body fields produce a 400 instead of a silent 200.
+//     Harmless on GETs and form-encoded bodies (the server only consults it
+//     when unmarshaling JSON request bodies).
+//   - X-CIO-Agent: 1 — set only when the CIO_AGENT env var is "1". The
+//     sandbox that runs the CLI on behalf of an AI agent sets this so
+//     downstream metrics can attribute traffic to the agent.
+func setStandardHeaders(req *http.Request) {
+	req.Header.Set("X-Validate", "strict")
 	if os.Getenv("CIO_AGENT") == "1" {
 		req.Header.Set("X-CIO-Agent", "1")
 	}
@@ -110,10 +118,14 @@ func New(cfg Config) *Client {
 }
 
 // APIError represents a structured error from the API.
+//
+// Body holds the raw response body. It is []byte (not json.RawMessage)
+// because some upstream errors return non-JSON content (HTML proxy pages,
+// plaintext) and we don't want consumers to trip MarshalJSON validation.
 type APIError struct {
-	StatusCode int             `json:"status_code"`
-	Body       json.RawMessage `json:"body,omitempty"`
-	RetryAfter time.Duration   `json:"-"`
+	StatusCode int           `json:"status_code"`
+	Body       []byte        `json:"-"`
+	RetryAfter time.Duration `json:"-"`
 }
 
 func (e *APIError) Error() string {
@@ -212,7 +224,7 @@ func exchangeTokenAt(ctx context.Context, httpClient *http.Client, baseURL, saTo
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
-	setAgentHeader(req)
+	setStandardHeaders(req)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -228,7 +240,7 @@ func exchangeTokenAt(ctx context.Context, httpClient *http.Client, baseURL, saTo
 	if resp.StatusCode != http.StatusOK {
 		return "", 0, &APIError{
 			StatusCode: resp.StatusCode,
-			Body:       json.RawMessage(body),
+			Body:       body,
 		}
 	}
 
@@ -319,7 +331,7 @@ func fetchAccountInfo(ctx context.Context, httpClient *http.Client, baseURL, acc
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Accept", "application/json")
-	setAgentHeader(req)
+	setStandardHeaders(req)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -469,7 +481,7 @@ func (c *Client) doOnce(ctx context.Context, method, rawURL, accessToken string,
 	if accessToken != "" {
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 	}
-	setAgentHeader(req)
+	setStandardHeaders(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -487,7 +499,7 @@ func (c *Client) doOnce(ctx context.Context, method, rawURL, accessToken string,
 			StatusCode: resp.StatusCode,
 		}
 		if len(respBody) > 0 {
-			apiErr.Body = json.RawMessage(respBody)
+			apiErr.Body = respBody
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
 			apiErr.RetryAfter = ParseRetryAfter(resp.Header.Get("Retry-After"))
@@ -499,7 +511,30 @@ func (c *Client) doOnce(ctx context.Context, method, rawURL, accessToken string,
 		return json.RawMessage("null"), nil
 	}
 
+	if !json.Valid(respBody) {
+		return nil, &NonJSONResponseError{
+			StatusCode:  resp.StatusCode,
+			ContentType: resp.Header.Get("Content-Type"),
+		}
+	}
+
 	return json.RawMessage(respBody), nil
+}
+
+// NonJSONResponseError is returned when the server responds with a success
+// status but a body that isn't valid JSON. This typically means the request
+// hit an upstream proxy or SPA catch-all rather than the API itself (e.g. an
+// unknown path on fly.customer.io returns a 200 HTML page).
+type NonJSONResponseError struct {
+	StatusCode  int
+	ContentType string
+}
+
+func (e *NonJSONResponseError) Error() string {
+	return fmt.Sprintf(
+		"endpoint did not return JSON (status %d, Content-Type %q); the path may not exist on this API host",
+		e.StatusCode, e.ContentType,
+	)
 }
 
 // ServiceAccountToken returns the configured sa_live_ token (for status display).
@@ -539,7 +574,7 @@ func PostAnonymous(ctx context.Context, baseURL, path string, body json.RawMessa
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	setAgentHeader(req)
+	setStandardHeaders(req)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -555,7 +590,7 @@ func PostAnonymous(ctx context.Context, baseURL, path string, body json.RawMessa
 	if resp.StatusCode >= http.StatusBadRequest {
 		apiErr := &APIError{StatusCode: resp.StatusCode}
 		if len(respBody) > 0 {
-			apiErr.Body = json.RawMessage(respBody)
+			apiErr.Body = respBody
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
 			apiErr.RetryAfter = ParseRetryAfter(resp.Header.Get("Retry-After"))
@@ -565,6 +600,12 @@ func PostAnonymous(ctx context.Context, baseURL, path string, body json.RawMessa
 
 	if len(respBody) == 0 {
 		return json.RawMessage("null"), nil
+	}
+	if !json.Valid(respBody) {
+		return nil, &NonJSONResponseError{
+			StatusCode:  resp.StatusCode,
+			ContentType: resp.Header.Get("Content-Type"),
+		}
 	}
 	return json.RawMessage(respBody), nil
 }

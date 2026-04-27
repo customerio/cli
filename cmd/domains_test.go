@@ -52,8 +52,18 @@ func domainServer(t *testing.T) *httptest.Server {
 		}
 
 		// DNS check endpoint — returns canned verification results.
+		// Used by link_tracking verify; the "domain_auth" flow has moved to
+		// POST /domains/:id/verify below.
 		if r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/check_dns") {
 			_, _ = w.Write([]byte(`{"domain_auth":{"records":[{"name":"MX","passing":true,"expected":"10 mxa.mailgun.org","actual":"10 mxa.mailgun.org"},{"name":"SPF","passing":true,"expected":"v=spf1 include:mailgun.org ~all","actual":"v=spf1 include:mailgun.org ~all"},{"name":"DKIM","passing":true,"expected":"k=rsa; p=MIIBIjAN...","actual":"k=rsa; p=MIIBIjAN..."},{"name":"DMARC","passing":false,"expected":"v=DMARC1; p=none","errors":["DMARC record not found"]}]}}`))
+			return
+		}
+
+		// Sending domain verify endpoint — returns the updated domain plus
+		// any soft verification errors. DMARC failing to simulate an
+		// incomplete setup.
+		if r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/verify") {
+			_, _ = w.Write([]byte(`{"domain":{"id":"789","domain":"example.com","verified":false,"verified_spf":true,"verified_dkim":true,"verified_domain":true,"verified_dmarc":false},"errors":{"DMARC":["DMARC record not found"]}}`))
 			return
 		}
 
@@ -355,44 +365,143 @@ func TestDomains_AuthenticateConfigure_CustomUIURL(t *testing.T) {
 	}
 }
 
-func TestDomains_Verify_WithFailures(t *testing.T) {
+func TestDomains_Verify(t *testing.T) {
+	cases := []struct {
+		name           string
+		verifyResponse string
+		dryRun         bool
+		wantVerified   any // true, false, or nil for dry-run cases
+		wantChecks     map[string]any
+		wantErrKeys    []string
+		wantStderr     []string
+	}{
+		{
+			name:           "all passing",
+			verifyResponse: `{"domain":{"id":"789","domain":"example.com","verified":true,"verified_spf":true,"verified_dkim":true,"verified_domain":true,"verified_dmarc":true}}`,
+			wantVerified:   true,
+			wantChecks:     map[string]any{"mx": true, "spf": true, "dkim": true, "dmarc": true},
+			wantStderr:     []string{"verified", "passing"},
+		},
+		{
+			name:           "DMARC failing",
+			verifyResponse: `{"domain":{"id":"789","domain":"example.com","verified":false,"verified_spf":true,"verified_dkim":true,"verified_domain":true,"verified_dmarc":false},"errors":{"DMARC":["DMARC record not found"]}}`,
+			wantVerified:   false,
+			wantChecks:     map[string]any{"mx": true, "spf": true, "dkim": true, "dmarc": false},
+			wantErrKeys:    []string{"DMARC"},
+			wantStderr:     []string{"FAILING", "re-run"},
+		},
+		{
+			name:           "DKIM and DMARC failing",
+			verifyResponse: `{"domain":{"id":"789","domain":"example.com","verified":false,"verified_spf":true,"verified_dkim":false,"verified_domain":true,"verified_dmarc":false},"errors":{"DKIM":["Could not verify DKIM"],"DMARC":["DMARC record not found"]}}`,
+			wantVerified:   false,
+			wantChecks:     map[string]any{"mx": true, "spf": true, "dkim": false, "dmarc": false},
+			wantErrKeys:    []string{"DKIM", "DMARC"},
+			wantStderr:     []string{"FAILING", "re-run"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			t.Setenv("HOME", tmpDir)
+			t.Setenv("CIO_TOKEN", "sa_live_test123")
+			t.Setenv("CIO_ACCESS_TOKEN", "")
+			t.Setenv("CIO_UI_URL", "")
+			resetDomainFlags()
+
+			body := tc.verifyResponse
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/v1/service_accounts/oauth/token" {
+					_, _ = w.Write([]byte(`{"access_token":"jwt-test-session","token_type":"Bearer","expires_in":3600}`))
+					return
+				}
+				if r.Method == "GET" && r.URL.Path == "/v1/environments/456/domains" {
+					_, _ = w.Write([]byte(`{"domains":[{"id":"789","domain":"example.com"}]}`))
+					return
+				}
+				if r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/verify") {
+					_, _ = w.Write([]byte(body))
+					return
+				}
+				w.WriteHeader(http.StatusNotFound)
+			}))
+			defer server.Close()
+
+			stdout, stderr, err := executeCommand("domains", "verify",
+				"--env-id", "456",
+				"example.com",
+				"--api-url", server.URL)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			var result map[string]any
+			if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+				t.Fatalf("invalid JSON: %v\nstdout: %s", err, stdout)
+			}
+			if result["verified"] != tc.wantVerified {
+				t.Errorf("verified: want %v, got %v", tc.wantVerified, result["verified"])
+			}
+			if result["domain"] != "example.com" {
+				t.Errorf("domain: want example.com, got %v", result["domain"])
+			}
+			checks, ok := result["checks"].(map[string]any)
+			if !ok {
+				t.Fatalf("expected checks map, got %T", result["checks"])
+			}
+			for k, v := range tc.wantChecks {
+				if checks[k] != v {
+					t.Errorf("checks[%q]: want %v, got %v", k, v, checks[k])
+				}
+			}
+			if len(tc.wantErrKeys) > 0 {
+				errs, ok := result["errors"].(map[string]any)
+				if !ok {
+					t.Fatalf("expected errors map, got %T", result["errors"])
+				}
+				for _, k := range tc.wantErrKeys {
+					if _, has := errs[k]; !has {
+						t.Errorf("expected errors[%q], got %v", k, errs)
+					}
+				}
+			} else if _, has := result["errors"]; has {
+				t.Errorf("expected no errors, got %v", result["errors"])
+			}
+			for _, needle := range tc.wantStderr {
+				if !strings.Contains(stderr, needle) {
+					t.Errorf("stderr missing %q\nstderr: %s", needle, stderr)
+				}
+			}
+		})
+	}
+}
+
+func TestDomains_Verify_DryRun(t *testing.T) {
 	server, cleanup := setupDomainTest(t)
 	defer cleanup()
 
-	stdout, stderr, err := executeCommand("domains", "verify",
+	stdout, _, err := executeCommand("domains", "verify",
 		"--env-id", "456",
 		"example.com",
-		"--api-url", server.URL)
+		"--api-url", server.URL,
+		"--dry-run")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	var result map[string]any
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
-		t.Fatalf("invalid JSON: %v\nstdout: %s", err, stdout)
+		t.Fatalf("invalid JSON: %v", err)
 	}
-	// DMARC is failing in our canned response, so verified should be false
-	if result["verified"] != false {
-		t.Errorf("expected verified=false, got %v", result["verified"])
+	if result["dry_run"] != true {
+		t.Errorf("expected dry_run=true")
 	}
-	if result["domain"] != "example.com" {
-		t.Errorf("expected domain=example.com, got %v", result["domain"])
+	if result["method"] != "POST" {
+		t.Errorf("expected POST, got %v", result["method"])
 	}
-	// Should have failing_records with DMARC
-	failing, ok := result["failing_records"].([]any)
-	if !ok || len(failing) == 0 {
-		t.Fatalf("expected failing_records array, got %v", result["failing_records"])
-	}
-	firstFailing, _ := failing[0].(map[string]any)
-	if firstFailing["record"] != "DMARC" {
-		t.Errorf("expected DMARC in failing records, got %v", firstFailing["record"])
-	}
-	// Human-readable summary should be on stderr
-	if !strings.Contains(stderr, "FAILING") {
-		t.Error("expected human-readable failure summary on stderr")
-	}
-	if !strings.Contains(stderr, "re-run") {
-		t.Error("expected instructions hint on stderr")
+	url, _ := result["url"].(string)
+	if !strings.HasSuffix(url, "/domains/789/verify") {
+		t.Errorf("expected URL ending in /domains/789/verify, got %v", url)
 	}
 }
 

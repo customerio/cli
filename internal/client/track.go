@@ -73,13 +73,20 @@ func DoTrack(ctx context.Context, req TrackRequest) (json.RawMessage, error) {
 	if resp.StatusCode >= http.StatusBadRequest {
 		apiErr := &APIError{StatusCode: resp.StatusCode}
 		if len(respBody) > 0 {
-			apiErr.Body = json.RawMessage(respBody)
+			apiErr.Body = respBody
 		}
 		return nil, apiErr
 	}
 
 	if len(respBody) == 0 {
 		return json.RawMessage("null"), nil
+	}
+
+	if !json.Valid(respBody) {
+		return nil, &NonJSONResponseError{
+			StatusCode:  resp.StatusCode,
+			ContentType: resp.Header.Get("Content-Type"),
+		}
 	}
 
 	return json.RawMessage(respBody), nil

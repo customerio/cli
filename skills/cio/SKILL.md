@@ -20,23 +20,25 @@ cio prime
 
 Everything below handles setup cases you might hit.
 
-## If the user wants to build on Customer.io
+## If the user wants to get started with Customer.io
 
-If the user mentions customer.io/builders, wants to try Customer.io,
-asks to set up a new account, configure email sending, or send their
-first message — follow [onboarding.md](onboarding.md). It walks through
-the full builder quickstart: sign up (or log in) → find workspace →
-add sending domain → configure DNS → create from address → send a
-test email.
+Follow [onboarding.md](onboarding.md) when the intent is about
+starting, building, trying, or setting up Customer.io — even if they
+have a project open. Account creation, authentication, domain setup,
+and sending a first email all live here. If the user isn't
+authenticated yet, onboarding is almost certainly the right path.
+
+Examples: "I want to build with Customer.io", "help me set up
+Customer.io", "I want to try Customer.io", "set up a new account",
+"send my first email".
 
 ## If the user wants to integrate an SDK
 
-If the user wants to add Customer.io to their app, instrument
-identify/track calls, set up in-app messaging, push notifications,
-or connect their codebase to Customer.io — follow
-[integration.md](integration.md). It walks through: detect tech
-stack → create a CDP source → get credentials → install the SDK →
-add identify/track calls → verify the integration.
+Follow [integration.md](integration.md) only when the user
+**specifically** asks to add an SDK, instrument identify/track calls,
+set up in-app messaging, push notifications, or connect their
+codebase to Customer.io. The distinction is that they already have
+a working account and want to wire it into code.
 
 ## If `cio` isn't installed
 

@@ -159,14 +159,14 @@ cio domains --env-id <environment_id> from_addresses add \
 
 ## Step 5 -- Send a test email
 
-Default recipient: the user's own email from Step 1.
+Send a test email to the authenticated user.
 
-**Note:** The send command uses `--environment-id` (not `--env-id` like domain commands). The `--from` flag uses RFC 5322 format: `"Display Name <email@domain>"`.
+**Note:** The send command uses `--environment-id` (not `--env-id` like domain commands). Pass `--from` as a bare email address with no display name.
 
 ```bash
 cio send email --environment-id <environment_id> \
-  --to <recipient-email> \
-  --from "Acme <hello@example.com>" \
+  --to <authenticated-user-email> \
+  --from <sender@domain> \
   --subject "Hello from Customer.io" \
   --body "<h1>It works!</h1><p>Your Customer.io account is set up and ready to go.</p>"
 ```

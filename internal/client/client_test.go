@@ -72,6 +72,44 @@ func TestClient_Do_APIError(t *testing.T) {
 	}
 }
 
+func TestClient_Do_NonJSONResponse(t *testing.T) {
+	// Simulates an upstream (e.g. SPA fallback) returning 200 OK with an HTML
+	// body for an unknown API path. Without validation, the HTML would flow
+	// through as a json.RawMessage and later fail at marshal time with a
+	// cryptic "invalid character '<'" error.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte("<!DOCTYPE html><html><body>not json</body></html>"))
+	}))
+	defer server.Close()
+
+	c := New(Config{
+		BaseURL:     server.URL,
+		AccessToken: "jwt",
+		RetryConfig: &RetryConfig{MaxRetries: 0, SleepFn: ContextSleep},
+	})
+
+	_, err := c.Do(context.Background(), "GET", "/v1/unknown", nil, nil)
+	if err == nil {
+		t.Fatal("expected error for non-JSON response")
+	}
+	njErr, ok := err.(*NonJSONResponseError)
+	if !ok {
+		t.Fatalf("expected *NonJSONResponseError, got %T: %v", err, err)
+	}
+	if njErr.StatusCode != 200 {
+		t.Errorf("expected status 200, got %d", njErr.StatusCode)
+	}
+	if !strings.Contains(njErr.ContentType, "text/html") {
+		t.Errorf("expected text/html content type, got %q", njErr.ContentType)
+	}
+	// Error message must not echo raw HTML — it would mislead users into
+	// thinking the request actually fetched a page.
+	if strings.Contains(njErr.Error(), "<!DOCTYPE") {
+		t.Errorf("error message should not include raw HTML, got: %s", njErr.Error())
+	}
+}
+
 func TestClient_Do_WithParams(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("limit") != "10" {
@@ -635,6 +673,31 @@ func TestParseJWTExpiry_OpaqueToken(t *testing.T) {
 	_, err := parseJWTExpiry("sa_live_abc123")
 	if err == nil {
 		t.Fatal("expected error for opaque token")
+	}
+}
+
+func TestClient_Do_ValidateHeader(t *testing.T) {
+	// X-Validate: strict must be stamped on every request so the server
+	// rejects unknown JSON fields with a 400 instead of silently dropping
+	// them. This is the CLI's primary defense against typo'd payloads from
+	// agents (e.g. segment_ids vs filters, tag_id vs tags[].name).
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("X-Validate")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	c := New(Config{
+		BaseURL:     server.URL,
+		AccessToken: "test-jwt",
+		RetryConfig: &RetryConfig{MaxRetries: 0, SleepFn: ContextSleep},
+	})
+	if _, err := c.Do(context.Background(), "GET", "/test", nil, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "strict" {
+		t.Errorf("X-Validate: got %q, want %q", got, "strict")
 	}
 }
 

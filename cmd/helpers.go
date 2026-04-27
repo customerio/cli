@@ -62,6 +62,13 @@ func errNoClient(cmd *cobra.Command) error {
 
 // handleAPIError maps API errors to structured CLI errors.
 func handleAPIError(err error) error {
+	if njErr, ok := err.(*client.NonJSONResponseError); ok {
+		output.PrintError(output.CodeAPIError, njErr.Error(), map[string]any{
+			"status_code":  njErr.StatusCode,
+			"content_type": njErr.ContentType,
+		})
+		return err
+	}
 	apiErr, ok := err.(*client.APIError)
 	if !ok {
 		output.PrintError(output.CodeGeneralError, err.Error(), nil)

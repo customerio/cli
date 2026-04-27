@@ -345,7 +345,25 @@ func mapDNSRecordsToEntri(records []domainDNSRecord) []entriDNSRecord {
 	return result
 }
 
-// --- Verify command and DNS check helpers ---
+// --- Verify command ---
+
+// domainVerifyResponse matches the shape returned by
+// POST /v1/environments/:env/domains/:id/verify. The backend pokes Mailgun
+// to re-check DNS, persists the result, and returns the updated domain plus
+// any soft verification errors/warnings.
+type domainVerifyResponse struct {
+	Domain struct {
+		ID             json.Number `json:"id"`
+		Domain         string      `json:"domain"`
+		Verified       *bool       `json:"verified"`
+		VerifiedSPF    *bool       `json:"verified_spf"`
+		VerifiedDKIM   *bool       `json:"verified_dkim"`
+		VerifiedDomain *bool       `json:"verified_domain"`
+		VerifiedDMARC  *bool       `json:"verified_dmarc"`
+	} `json:"domain"`
+	Errors   map[string][]string `json:"errors,omitempty"`
+	Warnings map[string][]string `json:"warnings,omitempty"`
+}
 
 func runDomainsVerify(cmd *cobra.Command, args []string) error {
 	c := clientFromCmd(cmd)
@@ -366,19 +384,17 @@ func runDomainsVerify(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	path := fmt.Sprintf("/v1/environments/%s/domains/%s/check_dns", envID, dom.ID)
-	params := map[string]string{"flow": "domain_auth"}
+	path := fmt.Sprintf("/v1/environments/%s/domains/%s/verify", envID, dom.ID)
 
 	if GetDryRun(cmd) {
 		return output.FprintJSON(cmd.OutOrStdout(), map[string]any{
 			"dry_run": true,
 			"method":  "POST",
 			"url":     c.BaseURL() + path,
-			"params":  params,
 		})
 	}
 
-	result, err := c.Do(cmd.Context(), "POST", path, params, nil)
+	result, err := c.Do(cmd.Context(), "POST", path, nil, nil)
 	if err != nil {
 		return handleAPIError(err)
 	}
@@ -387,8 +403,91 @@ func runDomainsVerify(cmd *cobra.Command, args []string) error {
 		return output.FprintProcess(cmd.OutOrStdout(), result, GetJQFlag(cmd))
 	}
 
-	return printDNSCheckResult(cmd, result, dom.Name, "domain_auth", "cio domains verify")
+	return printDomainVerifyResult(cmd, result, dom.Name)
 }
+
+// printDomainVerifyResult formats the /verify response: a human-readable
+// summary on stderr and structured JSON on stdout.
+func printDomainVerifyResult(cmd *cobra.Command, result json.RawMessage, domainArg string) error {
+	var resp domainVerifyResponse
+	if err := json.Unmarshal(result, &resp); err != nil {
+		return output.FprintJSON(cmd.OutOrStdout(), json.RawMessage(result))
+	}
+
+	verified := resp.Domain.Verified != nil && *resp.Domain.Verified
+
+	w := cmd.ErrOrStderr()
+	if verified {
+		fmt.Fprintf(w, "Domain %s: verified.\n", domainArg)
+	} else {
+		fmt.Fprintf(w, "Domain %s: NOT verified.\n\n", domainArg)
+	}
+
+	printCheck(w, "MX", resp.Domain.VerifiedDomain)
+	printCheck(w, "SPF", resp.Domain.VerifiedSPF)
+	printCheck(w, "DKIM", resp.Domain.VerifiedDKIM)
+	printCheck(w, "DMARC", resp.Domain.VerifiedDMARC)
+
+	if len(resp.Errors) > 0 {
+		fmt.Fprintln(w)
+		for key, msgs := range resp.Errors {
+			for _, m := range msgs {
+				fmt.Fprintf(w, "  %s: %s\n", key, m)
+			}
+		}
+	}
+
+	if len(resp.Warnings) > 0 {
+		fmt.Fprintln(w)
+		for key, msgs := range resp.Warnings {
+			for _, m := range msgs {
+				fmt.Fprintf(w, "  warning (%s): %s\n", key, m)
+			}
+		}
+	}
+
+	if !verified {
+		fmt.Fprintln(w, "\nAdd the expected DNS records at your DNS provider, then re-run 'cio domains verify' to confirm.")
+	}
+
+	out := map[string]any{
+		"verified": verified,
+		"domain":   domainArg,
+		"checks": map[string]any{
+			"mx":    boolPtrValue(resp.Domain.VerifiedDomain),
+			"spf":   boolPtrValue(resp.Domain.VerifiedSPF),
+			"dkim":  boolPtrValue(resp.Domain.VerifiedDKIM),
+			"dmarc": boolPtrValue(resp.Domain.VerifiedDMARC),
+		},
+	}
+	if len(resp.Errors) > 0 {
+		out["errors"] = resp.Errors
+	}
+	if len(resp.Warnings) > 0 {
+		out["warnings"] = resp.Warnings
+	}
+	return output.FprintJSON(cmd.OutOrStdout(), out)
+}
+
+func printCheck(w io.Writer, label string, v *bool) {
+	switch {
+	case v == nil:
+		fmt.Fprintf(w, "  %s: unknown\n", label)
+	case *v:
+		fmt.Fprintf(w, "  %s: passing\n", label)
+	default:
+		fmt.Fprintf(w, "  %s: FAILING\n", label)
+	}
+}
+
+func boolPtrValue(v *bool) any {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
+
+// --- DNS check helpers (used by link_tracking verify) ---
 
 // --- Shared DNS check output helpers ---
 
