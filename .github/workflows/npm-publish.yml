@@ -1,14 +1,163 @@
 name: npm publish
 
+run-name: >-
+  ${{ inputs.dry_run && 'npm publish dry-run' || 'npm publish' }}
+
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version to publish, for example v1.2.3"
+        required: true
+        type: string
+      dry_run:
+        description: "Build and package without publishing to npm"
+        required: true
+        default: true
+        type: boolean
+      confirm_repository:
+        description: "Type customerio/cli to confirm the target repository"
+        required: true
+        type: string
+      confirm_npm_package:
+        description: "Type @customerio/cli to confirm the root npm package"
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  npm-publish:
-    if: ${{ false }}
+  npm-dry-run:
+    if: ${{ inputs.dry_run }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
     steps:
-      - run: echo "npm publish scaffold is disabled until package decisions are reviewed."
+      - name: Validate version input
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+          CONFIRM_REPOSITORY: ${{ inputs.confirm_repository }}
+          CONFIRM_NPM_PACKAGE: ${{ inputs.confirm_npm_package }}
+        run: |
+          if [[ ! "$VERSION_INPUT" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "version must use the exact vX.Y.Z format"
+            exit 1
+          fi
+          if [[ "$CONFIRM_REPOSITORY" != "customerio/cli" ]]; then
+            echo "confirm_repository must be customerio/cli"
+            exit 1
+          fi
+          if [[ "$CONFIRM_NPM_PACKAGE" != "@customerio/cli" ]]; then
+            echo "confirm_npm_package must be @customerio/cli"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          scope: "@customerio"
+
+      - name: Install npm with trusted publishing support
+        run: npm install -g npm@latest
+
+      - name: Test
+        run: go test ./...
+
+      - uses: goreleaser/goreleaser-action@1a80836c5c9d9e5755a25cb59ec6f45a3b5f41a8 # v7.2.1
+        with:
+          version: "~> v2"
+          args: release --clean --snapshot --skip=publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare npm packages
+        env:
+          VERSION: ${{ inputs.version }}
+        run: node .github/scripts/prepare-npm-packages.js --pack-dry-run
+
+      - name: Validate package metadata
+        env:
+          VERSION: ${{ inputs.version }}
+        run: node .github/scripts/publish-npm.js --check
+
+  npm-publish:
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Validate version input
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+          CONFIRM_REPOSITORY: ${{ inputs.confirm_repository }}
+          CONFIRM_NPM_PACKAGE: ${{ inputs.confirm_npm_package }}
+        run: |
+          if [[ ! "$VERSION_INPUT" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "version must use the exact vX.Y.Z format"
+            exit 1
+          fi
+          if [[ "$CONFIRM_REPOSITORY" != "customerio/cli" ]]; then
+            echo "confirm_repository must be customerio/cli"
+            exit 1
+          fi
+          if [[ "$CONFIRM_NPM_PACKAGE" != "@customerio/cli" ]]; then
+            echo "confirm_npm_package must be @customerio/cli"
+            exit 1
+          fi
+          if [[ "$GITHUB_REF" != "refs/tags/$VERSION_INPUT" ]]; then
+            echo "real npm publish must be dispatched from refs/tags/$VERSION_INPUT"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.version }}
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          scope: "@customerio"
+
+      - name: Install npm with trusted publishing support
+        run: npm install -g npm@latest
+
+      - name: Test
+        run: go test ./...
+
+      - uses: goreleaser/goreleaser-action@1a80836c5c9d9e5755a25cb59ec6f45a3b5f41a8 # v7.2.1
+        with:
+          version: "~> v2"
+          args: release --clean --skip=publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare npm packages
+        env:
+          VERSION: ${{ inputs.version }}
+        run: node .github/scripts/prepare-npm-packages.js
+
+      - name: Publish
+        env:
+          VERSION: ${{ inputs.version }}
+        run: node .github/scripts/publish-npm.js

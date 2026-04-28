@@ -1,18 +1,118 @@
 name: Release
 
+run-name: >-
+  ${{ inputs.dry_run && 'Release dry-run' || 'Release' }}
+
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to prepare, for example v1.2.3"
+        description: "Release version to prepare, for example v1.2.3"
         required: true
+        type: string
+      dry_run:
+        description: "Build and validate artifacts without creating a GitHub Release"
+        required: true
+        default: true
+        type: boolean
+      confirm_repository:
+        description: "Type customerio/cli to confirm the target repository"
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  release:
-    if: ${{ false }}
+  release-dry-run:
+    if: ${{ inputs.dry_run }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - run: echo "Release workflow scaffold is disabled until reviewed."
+      - name: Validate version input
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+          CONFIRM_REPOSITORY: ${{ inputs.confirm_repository }}
+        run: |
+          if [[ ! "$VERSION_INPUT" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "version must use the exact vX.Y.Z format"
+            exit 1
+          fi
+          if [[ "$CONFIRM_REPOSITORY" != "customerio/cli" ]]; then
+            echo "confirm_repository must be customerio/cli"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: go test ./...
+
+      - uses: goreleaser/goreleaser-action@1a80836c5c9d9e5755a25cb59ec6f45a3b5f41a8 # v7.2.1
+        with:
+          version: "~> v2"
+          args: release --clean --snapshot --skip=publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: goreleaser-dist
+          path: dist/
+
+  release:
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - name: Validate version input
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+          CONFIRM_REPOSITORY: ${{ inputs.confirm_repository }}
+        run: |
+          if [[ ! "$VERSION_INPUT" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "version must use the exact vX.Y.Z format"
+            exit 1
+          fi
+          if [[ "$CONFIRM_REPOSITORY" != "customerio/cli" ]]; then
+            echo "confirm_repository must be customerio/cli"
+            exit 1
+          fi
+          if [[ "$GITHUB_REF" != "refs/tags/$VERSION_INPUT" ]]; then
+            echo "real release must be dispatched from refs/tags/$VERSION_INPUT"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.version }}
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: go test ./...
+
+      - uses: goreleaser/goreleaser-action@1a80836c5c9d9e5755a25cb59ec6f45a3b5f41a8 # v7.2.1
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: goreleaser-dist
+          path: dist/
