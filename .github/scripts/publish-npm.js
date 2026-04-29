@@ -53,8 +53,8 @@ function assertPackageMetadata(pkg, expectedName) {
   if (pkg.version !== version) {
     fail(`expected ${expectedName} version ${version}, found ${pkg.version}`);
   }
-  if (pkg.repository?.url !== "https://github.com/customerio/cli.git") {
-    fail(`${expectedName} must point to https://github.com/customerio/cli.git`);
+  if (pkg.repository?.url !== "git+https://github.com/customerio/cli.git") {
+    fail(`${expectedName} must point to git+https://github.com/customerio/cli.git`);
   }
   if (pkg.publishConfig?.access !== "public") {
     fail(`${expectedName} must publish with public access`);

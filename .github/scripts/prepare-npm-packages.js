@@ -26,7 +26,7 @@ const rootPackagePath = path.join(ROOT, "package.json");
 const originalRootPackage = fs.readFileSync(rootPackagePath, "utf8");
 const rootPackage = JSON.parse(originalRootPackage);
 const platforms = rootPackage.customerioCli?.platforms || [];
-const repository = { type: "git", url: "https://github.com/customerio/cli.git" };
+const repository = { type: "git", url: "git+https://github.com/customerio/cli.git" };
 
 function fail(message) {
   console.error(message);
