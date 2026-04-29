@@ -5,7 +5,7 @@ domain: Authentication, token management, OAuth exchange, credential storage
 
 # Auth
 
-The cio CLI authenticates using service account tokens (`sa_live_...`) exchanged for short-lived JWTs via OAuth 2.0 client credentials grant against the UI API at `fly.customer.io`.
+The Customer.io CLI (`cio`) authenticates using service account tokens (`sa_live_...`) exchanged for short-lived JWTs via OAuth 2.0 client credentials grant against the UI API at `fly.customer.io`.
 
 ## Invariants
 

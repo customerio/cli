@@ -1,4 +1,4 @@
-# Journeys CLI — Agent Context
+# Customer.io CLI (`cio`) — Agent Context
 
 This repository keeps the canonical agent-facing CLI context in [cmd/prime_context.md](./cmd/prime_context.md).
 

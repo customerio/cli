@@ -13,7 +13,7 @@ var primeContext string
 var primeCmd = &cobra.Command{
 	Use:   "prime",
 	Short: "Print LLM-ready instructions for using this CLI",
-	Long: `Output a compact reference for AI agents on how to use the cio CLI.
+	Long: `Output a compact reference for AI agents on how to use the Customer.io CLI.
 
 For detailed domain knowledge, use 'cio skills read <name>'.
 
