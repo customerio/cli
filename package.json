@@ -1,5 +1,5 @@
 {
-  "name": "@customerio/cio-cli",
+  "name": "@customerio/cli",
   "version": "0.0.0",
   "description": "Agent-first CLI for the Customer.io Journeys UI API",
   "bin": {
@@ -15,10 +15,68 @@
     "postinstall": "node .npm/postinstall.js"
   },
   "optionalDependencies": {
-    "@customerio/cio-cli-darwin-arm64": "0.0.0",
-    "@customerio/cio-cli-darwin-x64": "0.0.0",
-    "@customerio/cio-cli-linux-arm64": "0.0.0",
-    "@customerio/cio-cli-linux-x64": "0.0.0"
+    "@customerio/cli-darwin-arm64": "0.0.0",
+    "@customerio/cli-darwin-x64": "0.0.0",
+    "@customerio/cli-linux-arm64": "0.0.0",
+    "@customerio/cli-linux-x64": "0.0.0",
+    "@customerio/cli-win32-arm64": "0.0.0",
+    "@customerio/cli-win32-x64": "0.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "customerioCli": {
+    "platforms": [
+      {
+        "goos": "darwin",
+        "goarch": "arm64",
+        "npm": "darwin-arm64",
+        "os": "darwin",
+        "cpu": "arm64",
+        "ext": ""
+      },
+      {
+        "goos": "darwin",
+        "goarch": "amd64",
+        "npm": "darwin-x64",
+        "os": "darwin",
+        "cpu": "x64",
+        "ext": ""
+      },
+      {
+        "goos": "linux",
+        "goarch": "arm64",
+        "npm": "linux-arm64",
+        "os": "linux",
+        "cpu": "arm64",
+        "ext": ""
+      },
+      {
+        "goos": "linux",
+        "goarch": "amd64",
+        "npm": "linux-x64",
+        "os": "linux",
+        "cpu": "x64",
+        "ext": ""
+      },
+      {
+        "goos": "windows",
+        "goarch": "arm64",
+        "npm": "win32-arm64",
+        "os": "win32",
+        "cpu": "arm64",
+        "ext": ".exe"
+      },
+      {
+        "goos": "windows",
+        "goarch": "amd64",
+        "npm": "win32-x64",
+        "os": "win32",
+        "cpu": "x64",
+        "ext": ".exe"
+      }
+    ]
   },
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
