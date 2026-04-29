@@ -4,12 +4,15 @@ const { execFileSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
-const PLATFORM_PACKAGES = {
-  "darwin-arm64": "@customerio/cio-cli-darwin-arm64",
-  "darwin-x64": "@customerio/cio-cli-darwin-x64",
-  "linux-arm64": "@customerio/cio-cli-linux-arm64",
-  "linux-x64": "@customerio/cio-cli-linux-x64",
-};
+const pkgRoot = path.join(__dirname, "..");
+const rootPkg = JSON.parse(fs.readFileSync(path.join(pkgRoot, "package.json"), "utf8"));
+const platforms = rootPkg.customerioCli?.platforms || [];
+const PLATFORM_PACKAGES = Object.fromEntries(
+  platforms.map((platform) => [
+    platform.npm,
+    `${rootPkg.name}-${platform.npm}`,
+  ])
+);
 
 const ext = process.platform === "win32" ? ".exe" : "";
 const destDir = path.join(__dirname, "..", "bin");
@@ -30,7 +33,7 @@ if (tryGoBuild()) {
 
 console.error(
   "Failed to install cio CLI: no platform package found and no explicit source checkout could build the binary.\n" +
-    "Install from npm on a supported platform, or set CIO_CLI_SOURCE to a local cio-cli source checkout with Go installed."
+    "Install from npm on a supported platform, or set CIO_CLI_SOURCE to a local cli source checkout with Go installed."
 );
 process.exit(1);
 
@@ -60,7 +63,6 @@ function tryPlatformPackage() {
 function tryGoBuild() {
   // Published npm packages do not include Go source. CIO_CLI_SOURCE is an
   // explicit development escape hatch; the package root supports repo checkouts.
-  const pkgRoot = path.join(__dirname, "..");
   const candidates = [
     process.env.CIO_CLI_SOURCE,
     pkgRoot,                                     // repo root (package.json is here)

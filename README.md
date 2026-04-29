@@ -1,4 +1,4 @@
-# cio-cli
+# cli
 
 An agent-first CLI for the Customer.io Journeys UI API and CDP Data Pipelines API.
 

@@ -10,8 +10,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
+
+	"github.com/customerio/cli/internal/filelock"
 )
 
 const (
@@ -103,20 +104,12 @@ func (o *LoadOptions) resolveHTTPClient() *http.Client {
 // lockCacheDir acquires an exclusive file lock on the cache directory.
 func lockCacheDir(cacheDir string) (unlock func(), err error) {
 	lockPath := filepath.Join(cacheDir, "skills.lock")
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	unlock, err = filelock.Lock(lockPath, 0600)
 	if err != nil {
-		return nil, fmt.Errorf("open lock file: %w", err)
-	}
-
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		f.Close()
 		return nil, fmt.Errorf("acquire lock: %w", err)
 	}
 
-	return func() {
-		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-		f.Close()
-	}, nil
+	return unlock, nil
 }
 
 // EnsureSkills returns the cached skills response, downloading if stale or missing.
