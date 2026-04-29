@@ -69,9 +69,6 @@ jobs:
           registry-url: https://registry.npmjs.org
           scope: "@customerio"
 
-      - name: Install npm with trusted publishing support
-        run: npm install -g npm@latest
-
       - name: Test
         run: go test ./...
 
@@ -91,6 +88,11 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: node .github/scripts/publish-npm.js --check
+
+      - name: Validate npm publish command
+        env:
+          VERSION: ${{ inputs.version }}
+        run: node .github/scripts/publish-npm.js --dry-run
 
   npm-publish:
     if: ${{ !inputs.dry_run }}
@@ -139,9 +141,6 @@ jobs:
           registry-url: https://registry.npmjs.org
           scope: "@customerio"
 
-      - name: Install npm with trusted publishing support
-        run: npm install -g npm@latest
-
       - name: Test
         run: go test ./...
 
@@ -158,6 +157,10 @@ jobs:
         run: node .github/scripts/prepare-npm-packages.js
 
       - name: Publish
+        # Publishes @customerio/cli plus all platform packages prepared from
+        # this workflow's GoReleaser output. Real runs use npm trusted
+        # publishing/OIDC through the release environment; npm assigns the
+        # default latest dist-tag unless this script is changed to pass one.
         env:
           VERSION: ${{ inputs.version }}
         run: node .github/scripts/publish-npm.js
