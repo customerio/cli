@@ -61,7 +61,7 @@ cio auth status
 echo "$CIO_TOKEN" | cio auth login --with-token
 
 # Or just use env vars directly — in that case also provide region
-CIO_TOKEN=sa_live_xxx CIO_REGION=eu cio campaigns list
+CIO_TOKEN=sa_live_xxx CIO_REGION=eu cio auth status
 ```
 
 ### Check what's active
@@ -78,7 +78,7 @@ cio auth token
 
 ```bash
 # Point direct token-based API calls at EU
-CIO_TOKEN=sa_live_xxx CIO_REGION=eu cio campaigns list
+CIO_TOKEN=sa_live_xxx CIO_REGION=eu cio api /v1/environments/{environment_id}/campaigns --params '{"environment_id":"123"}'
 ```
 
 ### Remove credentials
@@ -130,7 +130,7 @@ This means something is trying to use the raw token as a Bearer header. The CLI 
 cio auth status
 
 # Override the API region for direct token-based usage
-CIO_TOKEN=sa_live_xxx CIO_REGION=eu cio campaigns list
+CIO_TOKEN=sa_live_xxx CIO_REGION=eu cio auth status
 ```
 
 ### JWT expired mid-session
@@ -150,5 +150,5 @@ If your account is in EU but you're hitting US (or vice versa), API calls will f
 
 ```bash
 cio auth status  # shows region
-CIO_TOKEN=sa_live_xxx CIO_REGION=eu cio campaigns list  # override region for direct token usage
+CIO_TOKEN=sa_live_xxx CIO_REGION=eu cio auth status  # override region for direct token usage
 ```

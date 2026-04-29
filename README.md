@@ -1,12 +1,19 @@
 # Customer.io CLI (`cio`)
 
-An agent-first CLI for the Customer.io Journeys UI API and CDP Data Pipelines API.
+An agent-first CLI for Customer.io APIs.
 
 **800+ Journeys routes + 100+ CDP Pipelines routes, zero per-endpoint code.** A single `cio api <path>` command covers every endpoint. Every command returns structured JSON to stdout. Every error returns structured JSON to stderr.
 
 AI agents are the primary consumer. Use `cio schema` to introspect endpoints before calling them.
 
 ## Install
+
+```bash
+npm i -g @customerio/cli
+cio --help
+```
+
+To build from source instead:
 
 ```bash
 go install github.com/customerio/cli@latest
