@@ -10,7 +10,7 @@ const binPath = path.join(__dirname, "..", "bin", `cio${ext}`);
 if (!fs.existsSync(binPath)) {
   console.error(
     `cio binary not found at ${binPath}\n` +
-      "Run 'npm rebuild @customerio/cio-cli' or reinstall."
+      "Run 'npm rebuild @customerio/cli' or reinstall."
   );
   process.exit(1);
 }

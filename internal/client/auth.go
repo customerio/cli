@@ -6,8 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/customerio/cli/internal/filelock"
 )
 
 const (
@@ -318,20 +319,12 @@ func lockConfigDir() (unlock func(), err error) {
 	}
 
 	lockPath := filepath.Join(dir, configLockName)
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, configFileMode)
+	unlock, err = filelock.Lock(lockPath, configFileMode)
 	if err != nil {
-		return nil, fmt.Errorf("open config lock: %w", err)
-	}
-
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		f.Close()
 		return nil, fmt.Errorf("acquire config lock: %w", err)
 	}
 
-	return func() {
-		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-		f.Close()
-	}, nil
+	return unlock, nil
 }
 
 // ConfigDir returns the path to ~/.cio/.
