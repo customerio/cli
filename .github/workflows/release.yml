@@ -15,12 +15,8 @@ on:
         required: true
         default: true
         type: boolean
-      confirm_repository:
-        description: "Type customerio/cli to confirm the target repository"
-        required: true
-        type: string
-      confirm_npm_package:
-        description: "Type @customerio/cli to confirm the root npm package"
+      confirm_release:
+        description: "Type customerio/cli @customerio/cli to confirm the release target"
         required: true
         type: string
       resume_existing_npm:
@@ -46,20 +42,15 @@ jobs:
       - name: Validate version input
         env:
           VERSION_INPUT: ${{ inputs.version }}
-          CONFIRM_REPOSITORY: ${{ inputs.confirm_repository }}
-          CONFIRM_NPM_PACKAGE: ${{ inputs.confirm_npm_package }}
+          CONFIRM_RELEASE: ${{ inputs.confirm_release }}
           RESUME_EXISTING_NPM: ${{ inputs.resume_existing_npm }}
         run: |
           if [[ ! "$VERSION_INPUT" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "version must use the exact vX.Y.Z format"
             exit 1
           fi
-          if [[ "$CONFIRM_REPOSITORY" != "customerio/cli" ]]; then
-            echo "confirm_repository must be customerio/cli"
-            exit 1
-          fi
-          if [[ "$CONFIRM_NPM_PACKAGE" != "@customerio/cli" ]]; then
-            echo "confirm_npm_package must be @customerio/cli"
+          if [[ "$CONFIRM_RELEASE" != "customerio/cli @customerio/cli" ]]; then
+            echo "confirm_release must be customerio/cli @customerio/cli"
             exit 1
           fi
           if [[ "$RESUME_EXISTING_NPM" == "true" ]]; then
@@ -133,19 +124,14 @@ jobs:
       - name: Validate version input
         env:
           VERSION_INPUT: ${{ inputs.version }}
-          CONFIRM_REPOSITORY: ${{ inputs.confirm_repository }}
-          CONFIRM_NPM_PACKAGE: ${{ inputs.confirm_npm_package }}
+          CONFIRM_RELEASE: ${{ inputs.confirm_release }}
         run: |
           if [[ ! "$VERSION_INPUT" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "version must use the exact vX.Y.Z format"
             exit 1
           fi
-          if [[ "$CONFIRM_REPOSITORY" != "customerio/cli" ]]; then
-            echo "confirm_repository must be customerio/cli"
-            exit 1
-          fi
-          if [[ "$CONFIRM_NPM_PACKAGE" != "@customerio/cli" ]]; then
-            echo "confirm_npm_package must be @customerio/cli"
+          if [[ "$CONFIRM_RELEASE" != "customerio/cli @customerio/cli" ]]; then
+            echo "confirm_release must be customerio/cli @customerio/cli"
             exit 1
           fi
           if [[ "$GITHUB_REF" != "refs/tags/$VERSION_INPUT" ]]; then
@@ -201,19 +187,14 @@ jobs:
       - name: Validate version input
         env:
           VERSION_INPUT: ${{ inputs.version }}
-          CONFIRM_REPOSITORY: ${{ inputs.confirm_repository }}
-          CONFIRM_NPM_PACKAGE: ${{ inputs.confirm_npm_package }}
+          CONFIRM_RELEASE: ${{ inputs.confirm_release }}
         run: |
           if [[ ! "$VERSION_INPUT" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "version must use the exact vX.Y.Z format"
             exit 1
           fi
-          if [[ "$CONFIRM_REPOSITORY" != "customerio/cli" ]]; then
-            echo "confirm_repository must be customerio/cli"
-            exit 1
-          fi
-          if [[ "$CONFIRM_NPM_PACKAGE" != "@customerio/cli" ]]; then
-            echo "confirm_npm_package must be @customerio/cli"
+          if [[ "$CONFIRM_RELEASE" != "customerio/cli @customerio/cli" ]]; then
+            echo "confirm_release must be customerio/cli @customerio/cli"
             exit 1
           fi
           if [[ "$GITHUB_REF" != "refs/tags/$VERSION_INPUT" ]]; then
@@ -307,19 +288,14 @@ jobs:
       - name: Validate version input
         env:
           VERSION_INPUT: ${{ inputs.version }}
-          CONFIRM_REPOSITORY: ${{ inputs.confirm_repository }}
-          CONFIRM_NPM_PACKAGE: ${{ inputs.confirm_npm_package }}
+          CONFIRM_RELEASE: ${{ inputs.confirm_release }}
         run: |
           if [[ ! "$VERSION_INPUT" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "version must use the exact vX.Y.Z format"
             exit 1
           fi
-          if [[ "$CONFIRM_REPOSITORY" != "customerio/cli" ]]; then
-            echo "confirm_repository must be customerio/cli"
-            exit 1
-          fi
-          if [[ "$CONFIRM_NPM_PACKAGE" != "@customerio/cli" ]]; then
-            echo "confirm_npm_package must be @customerio/cli"
+          if [[ "$CONFIRM_RELEASE" != "customerio/cli @customerio/cli" ]]; then
+            echo "confirm_release must be customerio/cli @customerio/cli"
             exit 1
           fi
           if [[ "$GITHUB_REF" != "refs/tags/$VERSION_INPUT" ]]; then
