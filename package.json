@@ -6,14 +6,10 @@
     "cio": ".npm/run.js"
   },
   "files": [
-    ".npm/postinstall.js",
     ".npm/run.js",
     "LICENSE",
     "README.md"
   ],
-  "scripts": {
-    "postinstall": "node .npm/postinstall.js"
-  },
   "optionalDependencies": {
     "@customerio/cli-darwin-arm64": "0.0.0",
     "@customerio/cli-darwin-x64": "0.0.0",

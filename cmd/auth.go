@@ -25,8 +25,8 @@ var readPasswordInput = func(fd uintptr) ([]byte, error) {
 
 var authCmd = &cobra.Command{
 	Use:   "auth",
-	Short: "Authenticate cio CLI with the Customer.io API",
-	Long: `Manage authentication for the Journeys CLI.
+	Short: "Authenticate Customer.io CLI with the Customer.io API",
+	Long: `Manage authentication for the Customer.io CLI.
 
 The CLI uses service account tokens (sa_live_...) for authentication.
 On login, the CLI exchanges the token for a short-lived JWT via OAuth 2.0
@@ -48,7 +48,7 @@ Alternatively, set the CIO_TOKEN environment variable or pass
 var authLoginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Authenticate with a Customer.io service account token",
-	Long: `Authenticate the cio CLI by minting a token through the web UI.
+	Long: `Authenticate the Customer.io CLI by minting a token through the web UI.
 
 Default flow: the CLI prints a URL, you open it in any browser, log in
 with email/password/SSO/2FA as normal, and the page mints a token scoped
@@ -259,7 +259,7 @@ Token resolution order:
 var authTokenCmd = &cobra.Command{
 	Use:   "token",
 	Short: "Print the active service account token",
-	Long: `Print the sa_live_ token that cio CLI is currently configured to use.
+	Long: `Print the sa_live_ token that Customer.io CLI is currently configured to use.
 
 This is useful for debugging token resolution. The token is printed to
 stdout with no formatting.
