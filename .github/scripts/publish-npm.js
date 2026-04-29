@@ -4,6 +4,7 @@ const { execFileSync } = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { normalizeVersion } = require("./release-version");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const NPM_DIR = path.join(ROOT, "npm");
@@ -28,12 +29,15 @@ if (resumeExisting && (dryRun || checkOnly)) {
   process.exit(1);
 }
 
-if (!/^v\d+\.\d+\.\d+$/.test(VERSION)) {
-  console.error("VERSION must be set to an exact version like v1.2.3");
+let normalizedVersion;
+try {
+  normalizedVersion = normalizeVersion(VERSION);
+} catch (err) {
+  console.error(err.message);
   process.exit(1);
 }
 
-const version = VERSION.slice(1);
+const version = normalizedVersion.npmVersion;
 const rootPackagePath = path.join(ROOT, "package.json");
 const rootPackage = JSON.parse(fs.readFileSync(rootPackagePath, "utf8"));
 const platforms = rootPackage.customerioCli?.platforms || [];

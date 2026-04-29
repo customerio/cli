@@ -3,6 +3,7 @@
 const { execFileSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const { normalizeVersion } = require("./release-version");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const DIST = path.join(ROOT, "dist");
@@ -16,12 +17,15 @@ if (unknownArgs.length > 0) {
   process.exit(1);
 }
 
-if (!/^v\d+\.\d+\.\d+$/.test(VERSION)) {
-  console.error("VERSION must be set to an exact version like v1.2.3");
+let normalizedVersion;
+try {
+  normalizedVersion = normalizeVersion(VERSION);
+} catch (err) {
+  console.error(err.message);
   process.exit(1);
 }
 
-const version = VERSION.slice(1);
+const version = normalizedVersion.npmVersion;
 const rootPackagePath = path.join(ROOT, "package.json");
 const originalRootPackage = fs.readFileSync(rootPackagePath, "utf8");
 const rootPackage = JSON.parse(originalRootPackage);
