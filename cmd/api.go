@@ -19,7 +19,7 @@ var pathParamRegex = regexp.MustCompile(`\{(\w+)\}`)
 var apiCmd = &cobra.Command{
 	Use:   "api <path>",
 	Short: "Make an authenticated Customer.io API request",
-	Long: `Make an authenticated HTTP request to the Customer.io Journeys UI API.
+	Long: `Make an authenticated HTTP request to Customer.io APIs.
 
 The path argument is an API endpoint, e.g. /v1/environments/{environment_id}/campaigns.
 Placeholders like {environment_id} are substituted from --params. The HTTP method

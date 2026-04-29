@@ -1,7 +1,7 @@
 {
   "name": "@customerio/cli",
   "version": "0.0.0",
-  "description": "Agent-first CLI for the Customer.io Journeys UI API",
+  "description": "Agent-first CLI for Customer.io APIs",
   "bin": {
     "cio": ".npm/run.js"
   },
@@ -77,7 +77,7 @@
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
-    "url": "https://github.com/customerio/cli.git"
+    "url": "git+https://github.com/customerio/cli.git"
   },
   "engines": {
     "node": ">=16"

@@ -39,7 +39,7 @@ const (
 // DefaultTimeout is exported so the cmd package can reference the default value.
 const DefaultTimeout = defaultTimeout
 
-// Config holds the configuration for the Journeys API client.
+// Config holds the configuration for the Customer.io API client.
 type Config struct {
 	// BaseURL is the API base URL. Defaults to https://us.fly.customer.io.
 	BaseURL string
@@ -59,7 +59,7 @@ type Config struct {
 	RetryConfig *RetryConfig
 }
 
-// Client is an HTTP client for the Customer.io Journeys UI API.
+// Client is an HTTP client for Customer.io APIs.
 type Client struct {
 	baseURL              string
 	serviceAccountToken  string
@@ -71,7 +71,7 @@ type Client struct {
 	retry                RetryConfig
 }
 
-// New creates a new Journeys API client from the given config.
+// New creates a new Customer.io API client from the given config.
 func New(cfg Config) *Client {
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
@@ -371,7 +371,7 @@ func fetchAccountInfo(ctx context.Context, httpClient *http.Client, baseURL, acc
 	return region, accountID, nil
 }
 
-// Do executes an HTTP request against the Journeys UI API.
+// Do executes an HTTP request against the configured Customer.io API base URL.
 //
 // If the client has a service account token (sa_live_), it automatically
 // exchanges it for a JWT before making the request.

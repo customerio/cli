@@ -20,7 +20,7 @@ If auth fails, ask the user to run `cio auth login` and paste their `sa_live_` t
 
 ## The `api` Command
 
-The primary command is `cio api <path>`. It makes authenticated HTTP requests to any Customer.io Journeys API endpoint.
+The primary command is `cio api <path>`. It makes authenticated HTTP requests to supported Customer.io API endpoints.
 
 ```bash
 cio api <path> [--method/-X METHOD] [--params '{}'] [--json '{}'] [flags]
@@ -53,7 +53,7 @@ Skills provide behavioral guidance, multi-step workflows, and gotchas that are N
 
 ```bash
 cio skills                              # list available skills
-cio skills read fly-api                 # Journeys API guidance — routes to sub-files
+cio skills read fly-api                 # Customer.io API guidance — routes to sub-files
 cio skills read fly-api/campaigns.md    # campaign workflows, edge wiring, gotchas
 cio skills read design-studio           # Design Studio email creation workflow
 cio skills read design-studio/nodes.md  # node creation, component markup

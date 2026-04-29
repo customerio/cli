@@ -30,7 +30,7 @@ func contextWithClient(ctx context.Context, c *client.Client) context.Context {
 var rootCmd = &cobra.Command{
 	Use:   "cio",
 	Short: "Customer.io CLI",
-	Long: `Agent-first CLI for the Customer.io Journeys UI API.
+	Long: `Agent-first CLI for Customer.io APIs.
 
 Authenticates using service account tokens (sa_live_...). The CLI
 exchanges them for short-lived JWTs via OAuth 2.0 client credentials.
