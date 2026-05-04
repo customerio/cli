@@ -610,6 +610,64 @@ func PostAnonymous(ctx context.Context, baseURL, path string, body json.RawMessa
 	return json.RawMessage(respBody), nil
 }
 
+// LoginCLILinkResponse holds the short-lived JWT minted by /v1/login_cli/link.
+type LoginCLILinkResponse struct {
+	HandoffToken string `json:"handoff_token"`
+	ExpiresIn    int    `json:"expires_in"`
+}
+
+// MintLoginCLILink asks the backend for a short-lived JWT that the user can
+// click to bootstrap a browser session for fly.customer.io. The CLI's
+// existing sa_live_ token is the credential — we send it as a Bearer token,
+// not in the URL.
+func MintLoginCLILink(ctx context.Context, baseURL, saToken string, timeout time.Duration) (*LoginCLILinkResponse, error) {
+	if timeout <= 0 {
+		timeout = defaultTimeout
+	}
+	httpClient := &http.Client{Timeout: timeout}
+
+	u := strings.TrimRight(baseURL, "/") + "/v1/login_cli/link"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+saToken)
+	setStandardHeaders(req)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode >= http.StatusBadRequest {
+		apiErr := &APIError{StatusCode: resp.StatusCode}
+		if len(respBody) > 0 {
+			apiErr.Body = respBody
+		}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			apiErr.RetryAfter = ParseRetryAfter(resp.Header.Get("Retry-After"))
+		}
+		return nil, apiErr
+	}
+
+	var out LoginCLILinkResponse
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+	if out.HandoffToken == "" {
+		return nil, fmt.Errorf("response missing handoff_token")
+	}
+	return &out, nil
+}
+
 // parseJWTExpiry extracts the exp claim from a JWT without verifying the
 // signature. Returns the expiry time or an error if the token is not a
 // valid 3-part JWT or lacks an exp claim.

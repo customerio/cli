@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -397,6 +398,73 @@ func TestReadInteractiveTokenWithTTY_FallsBackForNonTerminalInput(t *testing.T) 
 	}
 }
 
+// When `cio auth login` runs with no args and a sa_live_ already saved, it
+// should hit /v1/login_cli/link on the API, get a handoff JWT back, and
+// print a one-click URL — without touching the existing stored token.
+func TestAuthLogin_StoredTokenTriggersWebHandoff(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("CIO_TOKEN", "")
+	t.Setenv("CIO_UI_URL", "https://fly.example.test")
+
+	// Pre-populate ~/.cio/config.json with a sa_live_ token.
+	creds := &client.Credentials{
+		ServiceAccountToken: "sa_live_existing",
+		AccountID:           "42",
+		Region:              "us",
+	}
+	if err := client.WriteCredentials(creds); err != nil {
+		t.Fatalf("seed credentials: %v", err)
+	}
+
+	mintHits := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/login_cli/link" {
+			mintHits++
+			if got := r.Header.Get("Authorization"); got != "Bearer sa_live_existing" {
+				t.Errorf("expected Bearer auth with stored token, got %q", got)
+			}
+			_, _ = w.Write([]byte(`{"handoff_token":"handoff-jwt-abc","expires_in":60}`))
+			return
+		}
+		t.Errorf("unexpected request to %s", r.URL.Path)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	stdout, stderr, err := executeCommand("auth", "login", "--api-url", server.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstderr: %s", err, stderr)
+	}
+
+	if mintHits != 1 {
+		t.Errorf("expected 1 mint request, got %d", mintHits)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\nstdout: %s", err, stdout)
+	}
+	gotURL, _ := result["url"].(string)
+	wantSubstr := "https://fly.example.test/cli?token=handoff-jwt-abc"
+	if gotURL != wantSubstr {
+		t.Errorf("expected URL %q, got %q", wantSubstr, gotURL)
+	}
+	if !strings.Contains(stderr, wantSubstr) {
+		t.Errorf("expected stderr to print the URL, got: %s", stderr)
+	}
+
+	// Existing credentials must be untouched — the handoff bootstraps the
+	// browser, not the CLI.
+	reread, err := client.ReadCredentials()
+	if err != nil {
+		t.Fatalf("read credentials: %v", err)
+	}
+	if reread.ServiceAccountToken != "sa_live_existing" {
+		t.Errorf("stored token should not change, got %q", reread.ServiceAccountToken)
+	}
+}
+
 func TestAuthLogin_HelpMentionsBrowserFlow(t *testing.T) {
 	// Inspect `Long` directly instead of calling `--help`: cobra's help path
 	// mutates shared command state on the global rootCmd, which leaks into
@@ -555,7 +623,15 @@ func signupServer(t *testing.T) *httptest.Server {
 			}
 			_, _ = w.Write([]byte(`{"message":"check your email"}`))
 		case "/v1/account_signup/code":
-			_, _ = w.Write([]byte(`{"account_id":1,"environment_id":2,"user_id":3,"service_account_id":4,"token_id":5,"token":"sa_live_bootstrap","token_hint":"trap","expires_at":0}`))
+			var req struct {
+				DataCenter string `json:"data_center"`
+			}
+			_ = json.Unmarshal(body, &req)
+			dc := req.DataCenter
+			if dc == "" {
+				dc = "us"
+			}
+			_, _ = fmt.Fprintf(w, `{"account_id":1,"environment_id":2,"user_id":3,"service_account_id":4,"token_id":5,"token":"sa_live_bootstrap","token_hint":"trap","expires_at":0,"data_center":%q}`, dc)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -656,10 +732,49 @@ func TestAuthSignupVerify_ReturnsBootstrapToken(t *testing.T) {
 	if creds["account_id"] != "1" {
 		t.Errorf("expected account_id=1, got %v", creds["account_id"])
 	}
-	// data_center=eu in the request body, and server URL has no eu/us hint —
-	// so region should fall back to the request body's data_center.
+	// The server response includes data_center=eu (echoed from request body).
 	if creds["region"] != "eu" {
-		t.Errorf("expected region=eu (from request body data_center), got %v", creds["region"])
+		t.Errorf("expected region=eu (from response data_center), got %v", creds["region"])
+	}
+}
+
+// TestAuthSignupVerify_EURegionViaUSEndpoint is a regression test for the bug
+// where signing up an EU account through the default US endpoint caused the
+// CLI to store region=us. The signup endpoint always runs on us.fly, but the
+// response's data_center field is authoritative.
+func TestAuthSignupVerify_EURegionViaUSEndpoint(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("CIO_TOKEN", "")
+
+	server := signupServer(t)
+	defer server.Close()
+
+	// Simulate production: --api-url contains "us.fly" but data_center is EU.
+	// A reverse proxy or DNS alias could make the test server reachable via
+	// a us.fly-like URL, but for unit tests we just verify saveSignupCredentials
+	// directly.
+	response := json.RawMessage(`{"account_id":42,"token":"sa_live_eutest","data_center":"eu"}`)
+	requestBody := []byte(`{"email":"eu@example.com","code":"123456","data_center":"eu"}`)
+	baseURL := "https://us.fly.customer.io"
+
+	if err := saveSignupCredentials(response, requestBody, baseURL); err != nil {
+		t.Fatalf("saveSignupCredentials: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmpDir, ".cio", "config.json"))
+	if err != nil {
+		t.Fatalf("expected config written, got: %v", err)
+	}
+	var creds map[string]any
+	if err := json.Unmarshal(data, &creds); err != nil {
+		t.Fatalf("invalid config JSON: %v", err)
+	}
+	if creds["region"] != "eu" {
+		t.Errorf("expected region=eu (response data_center beats URL), got %v", creds["region"])
+	}
+	if creds["account_id"] != "42" {
+		t.Errorf("expected account_id=42, got %v", creds["account_id"])
 	}
 }
 

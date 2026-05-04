@@ -430,3 +430,168 @@ func TestSend_TrackURLFromEnvVar(t *testing.T) {
 		t.Errorf("expected delivery_id, got %v", result["delivery_id"])
 	}
 }
+
+// ---------------------------------------------------------------------------
+// --watch flag
+// ---------------------------------------------------------------------------
+
+// deliveryAPIServer creates a test server that mimics the REST API delivery
+// status endpoint. firstResponses are returned in order before the final
+// terminal response.
+func deliveryAPIServer(t *testing.T, envID, deliveryID string, firstResponses []map[string]any, finalResp map[string]any) *httptest.Server {
+	t.Helper()
+	call := 0
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		want := "/v1/environments/" + envID + "/deliveries/" + deliveryID
+		if r.URL.Path != want {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		var resp map[string]any
+		if call < len(firstResponses) {
+			resp = firstResponses[call]
+		} else {
+			resp = finalResp
+		}
+		call++
+		data, _ := json.Marshal(resp)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(data)
+	}))
+}
+
+func TestSend_Watch_PrintsDeliveryStatus(t *testing.T) {
+	_, cleanup := setupSendTest(t, "sa_live_test123", "123")
+	defer cleanup()
+
+	deliveryResp := map[string]any{
+		"delivery_id": "RKalBAUAAZ21_test==",
+		"state":       "sent",
+		"type":        "email",
+	}
+	apiServer := deliveryAPIServer(t, "123", "RKalBAUAAZ21_test==", nil, deliveryResp)
+	defer apiServer.Close()
+	t.Setenv("CIO_API_URL", apiServer.URL)
+	t.Setenv("CIO_ACCESS_TOKEN", "fake-access-token-for-test")
+
+	stdout, _, err := executeCommand("send", "email",
+		"--environment-id", "123",
+		"--token", "sa_live_test123",
+		"--json", `{"transactional_message_id":1,"identifiers":{"email":"test@example.com"}}`,
+		"--watch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\nstdout: %s", err, stdout)
+	}
+	if result["state"] != "sent" {
+		t.Errorf("expected state=sent, got %v", result["state"])
+	}
+}
+
+func TestSend_Watch_RetriesToGetTerminalStatus(t *testing.T) {
+	_, cleanup := setupSendTest(t, "sa_live_test123", "123")
+	defer cleanup()
+
+	pending := map[string]any{"delivery_id": "RKalBAUAAZ21_test=="}
+	terminal := map[string]any{"delivery_id": "RKalBAUAAZ21_test==", "state": "failed", "failure_message": "invalid address"}
+	apiServer := deliveryAPIServer(t, "123", "RKalBAUAAZ21_test==", []map[string]any{pending, pending}, terminal)
+	defer apiServer.Close()
+	t.Setenv("CIO_API_URL", apiServer.URL)
+	t.Setenv("CIO_ACCESS_TOKEN", "fake-access-token-for-test")
+
+	stdout, _, err := executeCommand("send", "email",
+		"--environment-id", "123",
+		"--token", "sa_live_test123",
+		"--json", `{"transactional_message_id":1,"identifiers":{"email":"test@example.com"}}`,
+		"-w")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\nstdout: %s", err, stdout)
+	}
+	if result["state"] != "failed" {
+		t.Errorf("expected state=failed, got %v", result["state"])
+	}
+}
+
+func TestSend_Watch_Retries404(t *testing.T) {
+	_, cleanup := setupSendTest(t, "sa_live_test123", "123")
+	defer cleanup()
+
+	calls := 0
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls < 3 {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		data, _ := json.Marshal(map[string]any{"delivery_id": "RKalBAUAAZ21_test==", "state": "sent"})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(data)
+	}))
+	defer apiServer.Close()
+	t.Setenv("CIO_API_URL", apiServer.URL)
+	t.Setenv("CIO_ACCESS_TOKEN", "fake-access-token-for-test")
+
+	stdout, _, err := executeCommand("send", "email",
+		"--environment-id", "123",
+		"--token", "sa_live_test123",
+		"--json", `{"transactional_message_id":1,"identifiers":{"email":"test@example.com"}}`,
+		"--watch")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if calls < 3 {
+		t.Errorf("expected at least 3 calls (2 x 404 + final), got %d", calls)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\nstdout: %s", err, stdout)
+	}
+	if result["state"] != "sent" {
+		t.Errorf("expected state=sent, got %v", result["state"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// isTerminalDelivery unit tests
+// ---------------------------------------------------------------------------
+
+func TestIsTerminalDelivery(t *testing.T) {
+	cases := []struct {
+		name     string
+		json     string
+		terminal bool
+	}{
+		{"top-level sent", `{"state":"sent"}`, true},
+		{"top-level opened", `{"state":"opened"}`, true},
+		{"top-level failed", `{"state":"failed"}`, true},
+		{"top-level bounced", `{"state":"bounced"}`, true},
+		{"top-level suppressed", `{"state":"suppressed"}`, true},
+		{"top-level undeliverable", `{"state":"undeliverable"}`, true},
+		{"top-level deferred", `{"state":"deferred"}`, true},
+		{"in-progress queued", `{"state":"queued"}`, false},
+		{"in-progress drafted", `{"state":"drafted"}`, false},
+		{"in-progress attempted", `{"state":"attempted"}`, false},
+		{"no state field", `{"delivery_id":"abc"}`, false},
+		{"empty state", `{"state":""}`, false},
+		{"nested sent", `{"delivery":{"state":"sent"}}`, true},
+		{"nested queued", `{"delivery":{"state":"queued"}}`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, _ := isTerminalDelivery(json.RawMessage(tc.json))
+			if got != tc.terminal {
+				t.Errorf("isTerminalDelivery(%s) = %v, want %v", tc.json, got, tc.terminal)
+			}
+		})
+	}
+}

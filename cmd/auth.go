@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -28,14 +29,8 @@ var authCmd = &cobra.Command{
 	Short: "Authenticate Customer.io CLI with the Customer.io API",
 	Long: `Manage authentication for the Customer.io CLI.
 
-The CLI uses service account tokens (sa_live_...) for authentication.
-On login, the CLI exchanges the token for a short-lived JWT via OAuth 2.0
-client credentials grant and caches it.
-
-Credentials are stored in ~/.cio/config.json with 0600 permissions.
-
-Alternatively, set the CIO_TOKEN environment variable or pass
---token on any command.`,
+Credentials are stored in ~/.cio/config.json.
+You can also set the CIO_TOKEN environment variable or pass --token on any command.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return cmd.Help()
 	},
@@ -47,22 +42,18 @@ Alternatively, set the CIO_TOKEN environment variable or pass
 
 var authLoginCmd = &cobra.Command{
 	Use:   "login",
-	Short: "Authenticate with a Customer.io service account token",
-	Long: `Authenticate the Customer.io CLI by minting a token through the web UI.
+	Short: "Authenticate the Customer.io CLI",
+	Long: `Sign in to the Customer.io CLI.
 
-Default flow: the CLI prints a URL, you open it in any browser, log in
-with email/password/SSO/2FA as normal, and the page mints a token scoped
-to the account you're currently viewing. Copy the token, paste it back
-at the prompt, and the CLI stores it in ~/.cio/config.json.
+If you're already signed in, this prints a link to open Customer.io in
+your browser — no password needed.
 
-For CI / automation the existing token-paste flow is unchanged:
-  $ echo "sa_live_abc123..." | cio auth login --with-token
-  $ cio auth login sa_live_abc123...
+If this is your first time, you'll be guided to sign in at
+fly.customer.io and paste a token back into your terminal.
 
-The token (sa_live_...) is stored in ~/.cio/config.json with 0600
-permissions. The CLI exchanges it for a short-lived JWT via the
-OAuth 2.0 client credentials grant at /v1/service_accounts/oauth/token,
-then auto-discovers your data center (US or EU) from the account.`,
+For CI or non-interactive use:
+  $ echo "$TOKEN" | cio auth login --with-token
+  $ cio auth login <token>`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		withToken, _ := cmd.Flags().GetBool("with-token")
@@ -86,6 +77,14 @@ then auto-discovers your data center (US or EU) from the account.`,
 		case len(args) == 1:
 			token = strings.TrimSpace(args[0])
 		default:
+			// If we already have a sa_live_ on disk, do the CLI → web
+			// handoff: print a URL with a short-lived JWT that signs the
+			// user into fly directly. Skips the password-reset detour for
+			// users who signed up via CLI.
+			if existing := loadStoredServiceAccountToken(); existing != "" {
+				return runLoginCLILink(cmd, existing)
+			}
+
 			// Print the URL rather than shelling out to a browser — works
 			// under SSH, headless CI, and restrictive sandboxes.
 			loginURL := resolveCLILoginURL()
@@ -157,7 +156,7 @@ then auto-discovers your data center (US or EU) from the account.`,
 var authLogoutCmd = &cobra.Command{
 	Use:   "logout",
 	Short: "Remove stored authentication credentials",
-	Long:  "Delete the stored token and cached JWT from ~/.cio/config.json.",
+	Long:  "Delete the stored credentials from ~/.cio/config.json.",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := client.DeleteCredentials(); err != nil {
@@ -179,8 +178,7 @@ var authLogoutCmd = &cobra.Command{
 var authStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Display active authentication state",
-	Long: `Check authentication status by showing the stored/active token source
-and verifying it against the API.
+	Long: `Show which token the CLI is currently using and whether it's valid.
 
 Token resolution order:
   1. --token flag
@@ -258,11 +256,8 @@ Token resolution order:
 
 var authTokenCmd = &cobra.Command{
 	Use:   "token",
-	Short: "Print the active service account token",
-	Long: `Print the sa_live_ token that Customer.io CLI is currently configured to use.
-
-This is useful for debugging token resolution. The token is printed to
-stdout with no formatting.
+	Short: "Print the active token",
+	Long: `Print the active token to stdout.
 
 Token resolution order:
   1. --token flag
@@ -291,15 +286,11 @@ Token resolution order:
 
 var authSignupCmd = &cobra.Command{
 	Use:   "signup",
-	Short: "Provision a new Customer.io account (unauthenticated agentic flow)",
-	Long: `Two-step unauthenticated signup flow for agents.
+	Short: "Create a new Customer.io account",
+	Long: `Create a new Customer.io account from the command line.
 
-Step 1 — 'signup start' emails a 6-digit verification code.
-Step 2 — 'signup verify' consumes the code, creates the account, and returns
-an Admin-scoped sa_live_ bootstrap token shown ONCE.
-
-Both subcommands honor --api-url (defaults to https://us.fly.customer.io).
-They require no credentials; --token / CIO_TOKEN are ignored.`,
+Step 1: 'cio auth signup start' sends a verification code to your email.
+Step 2: 'cio auth signup verify' confirms the code and creates your account.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return cmd.Help()
 	},
@@ -308,25 +299,20 @@ They require no credentials; --token / CIO_TOKEN are ignored.`,
 var authSignupStartCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Email a 6-digit verification code to the given address",
-	Long: `POST /v1/account_signup.
+	Long: `Send a verification code to the given email address.
 
-Supply the request body via --json:
-  cio auth signup start --json '{"email":"agent+demo@example.com"}'
-
-A 200 response ("check your email") is not proof a code was sent — if one
-doesn't arrive within a few minutes, try a different email.`,
+  cio auth signup start --json '{"email":"you@example.com"}'`,
 	Args: cobra.NoArgs,
 	RunE: runAuthSignupStart,
 }
 
 var authSignupVerifyCmd = &cobra.Command{
 	Use:   "verify",
-	Short: "Verify the code, create the account, and return the bootstrap sa_live_ token",
-	Long: `POST /v1/account_signup/code.
+	Short: "Confirm the verification code and create the account",
+	Long: `Confirm the verification code and create the account.
 
-Supply the request body via --json:
   cio auth signup verify --json '{
-    "email": "agent+demo@example.com",
+    "email": "you@example.com",
     "code": "123456",
     "company_name": "Acme",
     "first_name": "Ada",
@@ -334,12 +320,8 @@ Supply the request body via --json:
     "data_center": "us"
   }'
 
-The returned 'token' is shown ONCE and the server will not return it again.
-On success, verify automatically writes the bootstrap token + account_id to
-~/.cio/config.json, so the next 'cio api ...' call is already authenticated.
-
-If persistence fails (rare), capture the 'token' field from stdout and run:
-  echo "<token>" | cio auth login --with-token`,
+On success, your credentials are saved automatically and you're ready
+to use the CLI.`,
 	Args: cobra.NoArgs,
 	RunE: runAuthSignupVerify,
 }
@@ -405,12 +387,13 @@ func runAuthSignupVerify(cmd *cobra.Command, args []string) error {
 
 // saveSignupCredentials extracts the bootstrap token + account_id from a
 // successful /v1/account_signup/code response and writes them to
-// ~/.cio/config.json. Region is derived from --api-url if recognizable, else
-// from the request body's data_center field, else defaults to "us".
+// ~/.cio/config.json. Region priority: response data_center (authoritative
+// from server), then request body data_center, then --api-url, then "us".
 func saveSignupCredentials(response json.RawMessage, requestBody []byte, baseURL string) error {
 	var parsed struct {
-		Token     string          `json:"token"`
-		AccountID json.RawMessage `json:"account_id"`
+		Token      string          `json:"token"`
+		AccountID  json.RawMessage `json:"account_id"`
+		DataCenter string          `json:"data_center"`
 	}
 	if err := json.Unmarshal(response, &parsed); err != nil {
 		return fmt.Errorf("parse signup response: %w", err)
@@ -427,13 +410,16 @@ func saveSignupCredentials(response json.RawMessage, requestBody []byte, baseURL
 		accountID = ""
 	}
 
-	region := client.RegionFromBaseURL(baseURL)
+	region := strings.ToLower(strings.TrimSpace(parsed.DataCenter))
 	if region == "" {
 		var req struct {
 			DataCenter string `json:"data_center"`
 		}
 		_ = json.Unmarshal(requestBody, &req)
 		region = strings.ToLower(strings.TrimSpace(req.DataCenter))
+	}
+	if region == "" {
+		region = client.RegionFromBaseURL(baseURL)
 	}
 	if region == "" {
 		region = "us"
@@ -485,6 +471,55 @@ func runSignupRequest(cmd *cobra.Command, path string) error {
 	}
 
 	return output.FprintProcess(cmd.OutOrStdout(), result, GetJQFlag(cmd))
+}
+
+// loadStoredServiceAccountToken reads the saved sa_live_ token from
+// ~/.cio/config.json. It deliberately ignores CIO_TOKEN and the --token
+// flag — `cio auth login` is about persisting credentials, so we only
+// branch into the handoff flow when we already wrote a config file.
+func loadStoredServiceAccountToken() string {
+	creds, err := client.ReadCredentials()
+	if err != nil {
+		return ""
+	}
+	if !client.IsServiceAccountToken(creds.ServiceAccountToken) {
+		return ""
+	}
+	return creds.ServiceAccountToken
+}
+
+// runLoginCLILink exchanges a stored sa_live_ for a short-lived JWT and
+// prints a one-click URL the user can open to sign into the Customer.io
+// web UI. The CLI's stored credentials are unchanged — this flow only
+// bootstraps a browser session, it does not refresh the saved token.
+func runLoginCLILink(cmd *cobra.Command, saToken string) error {
+	baseURL := resolveLoginAPIURL(cmd)
+	if baseURL == "" {
+		// Use the same default as the rest of the CLI when --api-url isn't set.
+		region := "us"
+		if creds, err := client.ReadCredentials(); err == nil && creds.Region != "" {
+			region = creds.Region
+		}
+		baseURL = client.BaseURLForRegion(region)
+	}
+	timeout, _ := cmd.Flags().GetDuration("timeout")
+
+	resp, err := client.MintLoginCLILink(cmd.Context(), baseURL, saToken, timeout)
+	if err != nil {
+		return handleAPIError(err)
+	}
+
+	uiURL := resolveCLILoginURL() + "?token=" + url.QueryEscape(resp.HandoffToken)
+
+	fmt.Fprintf(cmd.ErrOrStderr(), "You're already signed in. Open this URL in your browser to access Customer.io:\n\n    %s\n\n", uiURL)
+	fmt.Fprintf(cmd.ErrOrStderr(), "This link is valid for %d seconds.\n", resp.ExpiresIn)
+
+	return output.FprintJSON(cmd.OutOrStdout(), map[string]any{
+		"status":     "ok",
+		"message":    "Open the URL in your browser to sign into Customer.io.",
+		"url":        uiURL,
+		"expires_in": resp.ExpiresIn,
+	})
 }
 
 // resolveCLILoginURL returns the shared hosted CLI login URL.

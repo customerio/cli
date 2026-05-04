@@ -164,9 +164,11 @@ func isAuthCommand(cmd *cobra.Command) bool {
 		return true
 	}
 	// Track API send commands authenticate directly with the sa_live_ token
-	// — they don't need the UI API OAuth exchange.
+	// and don't need the UI API OAuth exchange — unless --watch is set, which
+	// polls the REST API for delivery status.
 	if isTrackSendCommand(cmd) {
-		return true
+		watch, _ := cmd.Flags().GetBool("watch")
+		return !watch
 	}
 	return false
 }
