@@ -168,7 +168,8 @@ cio send email --environment-id <environment_id> \
   --to <authenticated-user-email> \
   --from <sender@domain> \
   --subject "Hello from Customer.io" \
-  --body "<h1>It works!</h1><p>Your Customer.io account is set up and ready to go.</p>"
+  --body "<h1>It works!</h1><p>Your Customer.io account is set up and ready to go.</p>" \
+  --watch
 ```
 
 Personalize subject/body with the company name. Email may land in spam until DNS records are verified.

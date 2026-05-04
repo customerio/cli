@@ -1,10 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/customerio/cli/internal/client"
 	"github.com/customerio/cli/internal/output"
@@ -72,6 +75,7 @@ func newSendEmailCmd(requireTxnID bool) *cobra.Command {
 	cmd.Flags().String("identifiers", "", `Identifiers as JSON (default: inferred from --to as {"email":"..."})`)
 	cmd.Flags().String("message-data", "", "Template variables as JSON")
 	cmd.Flags().String("transactional-message-id", "", "Transactional message ID or trigger name")
+	cmd.Flags().BoolP("watch", "w", false, "Poll delivery status after queuing and print the result when complete")
 	return cmd
 }
 
@@ -325,7 +329,20 @@ func runTrackSend(cmd *cobra.Command, sendPath string, body json.RawMessage) err
 		return handleAPIError(err)
 	}
 
-	return output.FprintProcess(cmd.OutOrStdout(), result, jq)
+	watch, _ := cmd.Flags().GetBool("watch")
+	if !watch {
+		return output.FprintProcess(cmd.OutOrStdout(), result, jq)
+	}
+
+	// Extract the delivery_id so we can poll its status.
+	var queued struct {
+		DeliveryID string `json:"delivery_id"`
+	}
+	if err := json.Unmarshal(result, &queued); err != nil || queued.DeliveryID == "" {
+		return fmt.Errorf("--watch: could not extract delivery_id from send response")
+	}
+
+	return watchDelivery(cmd, envID, queued.DeliveryID)
 }
 
 // isTrackSendCommand returns true for commands that send via the track API
@@ -333,4 +350,76 @@ func runTrackSend(cmd *cobra.Command, sendPath string, body json.RawMessage) err
 func isTrackSendCommand(cmd *cobra.Command) bool {
 	p := cmd.CommandPath()
 	return strings.HasPrefix(p, "cio send ") || strings.HasPrefix(p, "cio transactional send ")
+}
+
+// inProgressDeliveryStates are the delivery states that indicate the delivery
+// is still being processed. Sourced from services/deliveries DisplayState logic:
+// default (no metrics) → "queued"; intermediate metrics: "drafted", "attempted".
+var inProgressDeliveryStates = map[string]bool{
+	"queued":    true,
+	"drafted":   true,
+	"attempted": true,
+}
+
+// isTerminalDelivery reports whether the delivery response JSON has reached a
+// final state. Checks both top-level "state" and nested "delivery.state".
+func isTerminalDelivery(data json.RawMessage) (bool, string) {
+	var obj map[string]any
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return false, ""
+	}
+	var state string
+	if s, ok := obj["state"].(string); ok {
+		state = s
+	} else if delivery, ok := obj["delivery"].(map[string]any); ok {
+		if s, ok := delivery["state"].(string); ok {
+			state = s
+		}
+	}
+	if state == "" || inProgressDeliveryStates[state] {
+		return false, ""
+	}
+	return true, state
+}
+
+// watchDelivery polls GET /v1/environments/{envID}/deliveries/{deliveryID}
+// every 2 seconds until the delivery reaches a terminal status, then prints
+// the response to stdout.
+func watchDelivery(cmd *cobra.Command, envID, deliveryID string) error {
+	c := clientFromCmd(cmd)
+	path := fmt.Sprintf("/v1/environments/%s/deliveries/%s", envID, deliveryID)
+	jq := GetJQFlag(cmd)
+
+	timeout, _ := cmd.Flags().GetDuration("timeout")
+	ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
+	defer cancel()
+
+	stderr := cmd.ErrOrStderr()
+	fmt.Fprintf(stderr, "delivery queued (ID: %s) — watching for status", deliveryID)
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Fprintln(stderr)
+			return ctx.Err()
+		case <-ticker.C:
+			result, err := c.Do(ctx, http.MethodGet, path, nil, nil)
+			if err != nil {
+				if apiErr, ok := err.(*client.APIError); ok && apiErr.StatusCode == http.StatusNotFound {
+					fmt.Fprint(stderr, ".")
+					continue
+				}
+				fmt.Fprintln(stderr)
+				return handleAPIError(err)
+			}
+			if terminal, state := isTerminalDelivery(result); terminal {
+				fmt.Fprintf(stderr, " email %s!\n", state)
+				return output.FprintProcess(cmd.OutOrStdout(), result, jq)
+			}
+			fmt.Fprint(stderr, ".")
+		}
+	}
 }
