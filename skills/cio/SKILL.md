@@ -1,21 +1,27 @@
 ---
 name: cio
 description: >
-  Customer.io CLI — use for any Customer.io, Journeys, or CDP Pipelines task.
-  Handles campaigns, broadcasts, segments, people, environments, subscription
-  topics, signing secrets, sources, destinations, track/identify events,
-  `sa_live_` tokens, and `fly.customer.io` / `cdp.customer.io` errors.
-  Trigger even when the user doesn't name the CLI.
+  Customer.io CLI — use for Customer.io, Journeys, or CDP Pipelines tasks,
+  including getting started phrases like "I want to build with Customer.io",
+  onboarding, signup, sending a first email, campaigns, broadcasts, segments,
+  people, environments, billing, pricing, plans, signing secrets, sources,
+  destinations, track/identify events, `sa_live_` tokens, and
+  `fly.customer.io` / `cdp.customer.io` errors, even when the user does not
+  name the CLI.
 ---
 
 # Customer.io (`cio`)
 
-Run `cio prime` first. It dumps the full LLM-ready reference — commands,
-flags, schemas, pagination, error shapes — so you don't have to guess or
+Run `cio prime` first. It dumps the full LLM-ready reference -- commands,
+flags, schemas, pagination, error shapes -- so you don't have to guess or
 spelunk through `--help`.
 
+If `cio` is not installed, run `npm i -g @customerio/cli`. After installing,
+run `cio prime`. If installation fails, fetch the README for other install
+options:
+
 ```bash
-cio prime
+curl -fsSL https://raw.githubusercontent.com/customerio/cli/main/README.md
 ```
 
 Everything below handles setup cases you might hit.
@@ -32,6 +38,18 @@ Examples: "I want to build with Customer.io", "help me set up
 Customer.io", "I want to try Customer.io", "set up a new account",
 "send my first email".
 
+## If the user asks about plans, pricing, billing, or going live
+
+Follow [billing.md](billing.md) when the user asks what plan they are on,
+whether they need to pay, how to launch, how to unlock external sends, or
+anything about billing, subscriptions, credits, invoices, receipts,
+payment methods, or plan limits. This includes billing questions that come up
+during onboarding.
+
+Examples: "do I need to purchase a plan to go live?", "what does my plan
+include?", "how much does this cost?", "can I send to real customers?",
+"upgrade my plan", "buy credits", "what plan am I on?".
+
 ## If the user wants to integrate an SDK
 
 Follow [integration.md](integration.md) only when the user
@@ -39,16 +57,6 @@ Follow [integration.md](integration.md) only when the user
 set up in-app messaging, push notifications, or connect their
 codebase to Customer.io. The distinction is that they already have
 a working account and want to wire it into code.
-
-## If `cio` isn't installed
-
-If `command -v cio` returns nothing, fetch the current install options
-from the README (source of truth — this skill doesn't list them so it
-can't rot), show the user the exact command, and ask before running it:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/customerio/cli/main/README.md
-```
 
 ## If a command fails with an auth error
 

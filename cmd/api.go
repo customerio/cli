@@ -54,6 +54,11 @@ func runAPI(cmd *cobra.Command, args []string) error {
 	if !strings.HasPrefix(pathTemplate, "/") {
 		pathTemplate = "/" + pathTemplate
 	}
+	if strings.ContainsAny(pathTemplate, "?#") {
+		err := fmt.Errorf("path must not contain query or fragment characters; pass query values via --params")
+		output.PrintError(output.CodeValidationError, err.Error(), nil)
+		return err
+	}
 
 	// Determine HTTP method.
 	methodFlag, _ := cmd.Flags().GetString("method")
@@ -173,7 +178,8 @@ func extractPathParamNames(pathTemplate string) map[string]bool {
 // Path params are those matching {placeholder} in the path template.
 // Input is validated through validate.ValidateParams (keys must match
 // [a-zA-Z0-9_]+, values must not contain control characters, see
-// MaxParamValueLength). Path params additionally must be numeric IDs.
+// MaxParamValueLength). Path params are validated as safe URL path segments;
+// the API remains the source of truth for endpoint-specific ID semantics.
 func parseAPIParams(pathTemplate, paramsJSON string) (pathParams, queryParams map[string]string, err error) {
 	pathParams = make(map[string]string)
 	queryParams = make(map[string]string)
@@ -190,7 +196,7 @@ func parseAPIParams(pathTemplate, paramsJSON string) (pathParams, queryParams ma
 	pathParamNames := extractPathParamNames(pathTemplate)
 	for k, v := range params {
 		if pathParamNames[k] {
-			if err := validate.ValidateResourceID(v); err != nil {
+			if err := validate.ValidatePathSegmentID(v); err != nil {
 				return nil, nil, fmt.Errorf("path parameter %q: %w", k, err)
 			}
 			pathParams[k] = v

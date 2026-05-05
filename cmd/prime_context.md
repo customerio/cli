@@ -3,7 +3,7 @@ You have access to `cio`, an agent-first CLI for Customer.io. Most commands retu
 ## Key Rules
 
 1. Unless you are intentionally using `cio prime`, assume command output is JSON. Parse it, don't regex it.
-2. Resource IDs are integers (but passed as strings in paths and params).
+2. Path placeholders are passed as strings. Many IDs are numeric, but profile/object IDs can be string values such as `eea50d000102`; let the API own endpoint-specific ID semantics.
 3. ALWAYS use `--jq` on read calls to limit output and save tokens.
 4. ALWAYS use `--dry-run` before any mutating call to preview what will be sent.
 5. Read the relevant skill (`cio skills read`) BEFORE making complex API calls — the API has non-obvious required fields, multi-step workflows, and silent failures.

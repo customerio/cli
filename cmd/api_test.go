@@ -39,9 +39,10 @@ func apiServer(t *testing.T) *httptest.Server {
 
 		// Echo back what was received for verification
 		response := map[string]any{
-			"method": r.Method,
-			"path":   r.URL.Path,
-			"query":  r.URL.Query(),
+			"method":      r.Method,
+			"path":        r.URL.Path,
+			"query":       r.URL.Query(),
+			"request_uri": r.RequestURI,
 		}
 		data, _ := json.Marshal(response)
 		_, _ = w.Write(data)
@@ -136,15 +137,182 @@ func TestAPI_MissingPathParam(t *testing.T) {
 	}
 }
 
-func TestAPI_InvalidPathParam(t *testing.T) {
+func TestAPI_PathParamsAllowStringSegments(t *testing.T) {
 	server, cleanup := setupAPITest(t)
 	defer cleanup()
 
-	_, _, err := executeCommand("api", "/v1/environments/{environment_id}/campaigns",
+	stdout, _, err := executeCommand("api", "/v1/environments/{environment_id}/test_users/{test_user_id}",
 		"--api-url", server.URL,
-		"--params", `{"environment_id": "abc"}`)
-	if err == nil {
-		t.Fatal("expected error for non-numeric ID")
+		"--params", `{"environment_id": "217838", "test_user_id": "profile_abc-123"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\nstdout: %s", err, stdout)
+	}
+	if result["path"] != "/v1/environments/217838/test_users/profile_abc-123" {
+		t.Errorf("expected resolved string path segment, got %v", result["path"])
+	}
+}
+
+func TestAPI_CustomerIDAllowsCIOID(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	params := `{"environment_id": "217838", "customer_id": "eea50d000102"}`
+	wantPath := "/v1/environments/217838/customers/eea50d000102"
+
+	tests := []struct {
+		name      string
+		args      []string
+		wantKey   string
+		wantValue string
+	}{
+		{
+			name: "get",
+			args: []string{"api", "/v1/environments/{environment_id}/customers/{customer_id}",
+				"--api-url", server.URL,
+				"--params", params},
+			wantKey:   "path",
+			wantValue: wantPath,
+		},
+		{
+			name: "put",
+			args: []string{"api", "/v1/environments/{environment_id}/customers/{customer_id}",
+				"--api-url", server.URL,
+				"--params", params,
+				"-X", "PUT",
+				"--json", `{"customer":{"email":"test@example.com"}}`},
+			wantKey:   "path",
+			wantValue: wantPath,
+		},
+		{
+			name: "dry-run",
+			args: []string{"api", "/v1/environments/{environment_id}/customers/{customer_id}",
+				"--api-url", server.URL,
+				"--params", params,
+				"--dry-run"},
+			wantKey:   "url",
+			wantValue: server.URL + wantPath,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout, _, err := executeCommand(tt.args...)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			var result map[string]any
+			if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+				t.Fatalf("invalid JSON: %v\nstdout: %s", err, stdout)
+			}
+			if result[tt.wantKey] != tt.wantValue {
+				t.Errorf("expected %s=%s, got %v", tt.wantKey, tt.wantValue, result[tt.wantKey])
+			}
+		})
+	}
+}
+
+func TestAPI_CustomerIDAllowsEmailIdentifier(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	stdout, _, err := executeCommand("api", "/v1/environments/{environment_id}/customers/{customer_id}",
+		"--api-url", server.URL,
+		"--params", `{"environment_id": "217838", "customer_id": "user@example.com"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\nstdout: %s", err, stdout)
+	}
+	if result["path"] != "/v1/environments/217838/customers/user@example.com" {
+		t.Errorf("expected email identifier in path, got %v", result["path"])
+	}
+	if result["request_uri"] != "/v1/environments/217838/customers/user@example.com" {
+		t.Errorf("expected email identifier to remain in request path, got request_uri=%v", result["request_uri"])
+	}
+}
+
+func TestAPI_PathParamRejectsReservedPathCharacters(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	tests := []struct {
+		name   string
+		params string
+	}{
+		{
+			name:   "slash",
+			params: `{"environment_id": "217838", "test_user_id": "eea50d000102/../deliveries"}`,
+		},
+		{
+			name:   "pre-encoded",
+			params: `{"environment_id": "217838", "test_user_id": "user%40example.com"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := executeCommand("api", "/v1/environments/{environment_id}/test_users/{test_user_id}",
+				"--api-url", server.URL,
+				"--params", tt.params)
+			if err == nil {
+				t.Fatal("expected error for reserved path character")
+			}
+			if !strings.Contains(err.Error(), "reserved path character") {
+				t.Errorf("expected reserved path character error, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestAPI_PathParamRejectsDotSegments(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	for _, value := range []string{".", ".."} {
+		t.Run(value, func(t *testing.T) {
+			_, _, err := executeCommand("api", "/v1/environments/{environment_id}/test_users/{test_user_id}",
+				"--api-url", server.URL,
+				"--params", `{"environment_id": "217838", "test_user_id": "`+value+`"}`)
+			if err == nil {
+				t.Fatal("expected error for dot path segment")
+			}
+			if !strings.Contains(err.Error(), "dot path segment") {
+				t.Errorf("expected dot path segment error, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestAPI_RejectsQueryOrFragmentInPathTemplate(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	tests := []string{
+		"/v1/environments/{environment_id}/campaigns?include_archived=true",
+		"/v1/environments/{environment_id}/campaigns#section",
+	}
+
+	for _, path := range tests {
+		t.Run(path, func(t *testing.T) {
+			_, _, err := executeCommand("api", path,
+				"--api-url", server.URL,
+				"--params", `{"environment_id": "217838"}`)
+			if err == nil {
+				t.Fatal("expected error for query or fragment in path")
+			}
+			if !strings.Contains(err.Error(), "query or fragment") {
+				t.Errorf("expected query or fragment error, got: %v", err)
+			}
+		})
 	}
 }
 
