@@ -12,12 +12,37 @@ const VERSION = process.env.VERSION || "";
 const dryRun = process.argv.includes("--dry-run");
 const checkOnly = process.argv.includes("--check");
 const resumeExisting = process.argv.includes("--resume-existing");
+const registryArg = process.argv.find((arg) => arg.startsWith("--registry="));
 const unknownArgs = process.argv
   .slice(2)
-  .filter((arg) => !["--dry-run", "--check", "--resume-existing"].includes(arg));
+  .filter(
+    (arg) =>
+      !["--dry-run", "--check", "--resume-existing"].includes(arg) &&
+      !arg.startsWith("--registry=")
+  );
+
+const registries = {
+  npm: {
+    label: "npm",
+    url: "https://registry.npmjs.org/",
+    publishArgs: [],
+  },
+  "github-packages": {
+    label: "GitHub Packages",
+    url: "https://npm.pkg.github.com/",
+    // Provenance is generated for npmjs.org publishes; GitHub Packages uses GITHUB_TOKEN auth.
+    publishArgs: ["--provenance=false"],
+  },
+};
+const registryName = registryArg ? registryArg.slice("--registry=".length) : "npm";
+const registry = registries[registryName];
 
 if (unknownArgs.length > 0) {
   console.error(`Unknown argument(s): ${unknownArgs.join(", ")}`);
+  process.exit(1);
+}
+if (!registry) {
+  console.error(`Unknown registry: ${registryName}`);
   process.exit(1);
 }
 if (dryRun && checkOnly) {
@@ -58,10 +83,14 @@ function fail(message) {
 
 function npmView(packageName) {
   try {
-    const output = execFileSync("npm", ["view", `${packageName}@${version}`, "--json"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
+    const output = execFileSync(
+      "npm",
+      ["view", `${packageName}@${version}`, "--json", "--registry", registry.url],
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    ).trim();
     if (!output) {
       return null;
     }
@@ -152,8 +181,9 @@ function publish(packageDir) {
     return;
   }
   const args = dryRun
-    ? ["publish", "--dry-run", "--access", "public"]
-    : ["publish", "--access", "public"];
+    ? ["publish", "--dry-run", "--access", "public", "--registry", registry.url]
+    : ["publish", "--access", "public", "--registry", registry.url];
+  args.push(...registry.publishArgs);
   execFileSync("npm", args, { cwd: packageDir, stdio: "inherit" });
 }
 
@@ -189,7 +219,7 @@ if (!dryRun && !checkOnly) {
     const remotePackage = npmView(pkg.name);
     if (remotePackage) {
       if (!resumeExisting) {
-        fail(`${pkg.name}@${version} already exists; use --resume-existing only after verifying recovery is intended`);
+        fail(`${pkg.name}@${version} already exists in ${registry.label}; use --resume-existing only after verifying recovery is intended`);
       }
       assertRemotePackageMatches(pkg.dir, pkg.name, remotePackage);
       existingPackages.set(pkg.name, true);
@@ -199,7 +229,7 @@ if (!dryRun && !checkOnly) {
 
 for (const pkg of packages) {
   if (existingPackages.has(pkg.name)) {
-    console.log(`Skipping existing matching package ${pkg.name}@${version}`);
+    console.log(`Skipping existing matching ${registry.label} package ${pkg.name}@${version}`);
     continue;
   }
   publish(pkg.dir);

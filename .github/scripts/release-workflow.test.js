@@ -37,13 +37,19 @@ assert.doesNotThrow(() =>
     GITHUB_REF: "refs/heads/main",
   }))
 );
+assert.doesNotThrow(() =>
+  validateDispatch(env({
+    DRY_RUN: "true",
+    GITHUB_REF: "refs/heads/codex/publish-github-packages",
+  }))
+);
 assert.throws(
   () => validateDispatch(env({ DRY_RUN: "true", RESUME_EXISTING_NPM: "true" })),
   /resume_existing_npm/
 );
 assert.throws(
   () => validateDispatch(env({ DRY_RUN: "true", GITHUB_REF: "refs/tags/v1.2.3" })),
-  /dry-run must be dispatched/
+  /dry-run must be dispatched from a branch/
 );
 
 assert.doesNotThrow(() =>
