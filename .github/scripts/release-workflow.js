@@ -33,17 +33,17 @@ function validateDispatch(env = process.env) {
 
   if (ctx.dryRun) {
     if (ctx.resumeExistingNpm) {
-      fail("resume_existing_npm is only valid for real npm publish recovery");
+      fail("resume_existing_npm is only valid for real package publishing recovery");
     }
-    if (ctx.githubRef !== "refs/heads/main") {
-      fail("release dry-run must be dispatched from refs/heads/main");
+    if (!ctx.githubRef.startsWith("refs/heads/")) {
+      fail("release dry-run must be dispatched from a branch");
     }
     return ctx;
   }
 
   if (ctx.resumeExistingNpm) {
     if (ctx.githubRef !== ctx.tagRef) {
-      fail(`npm publish recovery must be dispatched from ${ctx.tagRef}`);
+      fail(`package publishing recovery must be dispatched from ${ctx.tagRef}`);
     }
     return ctx;
   }
@@ -200,7 +200,7 @@ function assertExistingRelease(env = process.env) {
       ])
     );
   } catch (err) {
-    fail(`resume_existing_npm requires an existing non-draft GitHub Release for ${ctx.tag}`);
+    fail(`package publishing recovery requires an existing non-draft GitHub Release for ${ctx.tag}`);
   }
 
   if (release.tagName !== ctx.tag) {
@@ -210,7 +210,7 @@ function assertExistingRelease(env = process.env) {
     fail(`GitHub Release ${ctx.tag} is still a draft`);
   }
 
-  console.log(`Resuming npm publish after existing GitHub Release: ${release.url}`);
+  console.log(`Resuming package publishing after existing GitHub Release: ${release.url}`);
   return ctx;
 }
 
