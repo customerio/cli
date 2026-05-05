@@ -14,19 +14,13 @@ Present these as suggestions and **wait for the user to confirm or override befo
 
 ## Before you start
 
-1. Confirm `cio` is installed and on PATH:
-   ```bash
-   command -v cio
-   ```
-   If missing, fetch install instructions: `curl -fsSL https://raw.githubusercontent.com/customerio/cli/main/README.md`. After install, re-run `command -v cio` to confirm the binary is on PATH.
-
-2. Load the full CLI reference:
+1. Load the full CLI reference:
    ```bash
    cio prime
    ```
 
-3. Check where the user is and skip completed steps (tell the user what you're skipping and why):
-   - `cio auth status` returns `"verified": true` -> skip to Step 2
+2. Check where the user is and skip completed steps (tell the user what you're skipping and why):
+   - `cio auth status` returns `"verified": true` -> skip to Step 2; note the authenticated email for Step 5
    - Already knows their environment ID -> skip to Step 3
    - Already has a verified sending domain -> skip to Step 4
 
@@ -62,7 +56,7 @@ cio auth signup verify --json '{
   "company_name": "<company>",
   "first_name": "<first>",
   "last_name": "<last>",
-  "data_center": "us"
+  "data_center": "<us-or-eu>"
 }'
 ```
 
@@ -123,15 +117,15 @@ Ask which domain they'll send from. Suggest a domain from the company name if kn
 cio domains --env-id <environment_id> add <domain>
 ```
 
-The response includes a `domain_connect_url` — ignore it. Always use `cio domains configure` (next step) for DNS setup, which goes through Entri and supports link tracking.
+The response includes a `domain_connect_url` — ignore it. Always use `cio domains configure` (next step) for the one-click DNS setup flow, which supports link tracking.
 
-### 3b. Configure DNS via Entri
+### 3b. Configure DNS with one-click setup
 
 ```bash
 cio domains --env-id <environment_id> configure <domain>
 ```
 
-Prints a URL for the Entri DNS setup flow (auto-configures MX, SPF, DKIM, DMARC). Tell the user to open it.
+Prints a URL for the one-click DNS setup flow (auto-configures MX, SPF, DKIM, DMARC). Tell the user to open it.
 
 **Link tracking (optional):** Only pass `--cname` if the user specifically asks for link tracking. When used, it requires a subdomain value (e.g. `--cname email` for `email.<domain>`, or `--cname track` for `track.<domain>`). Do not pass `--cname` by default.
 
@@ -159,7 +153,7 @@ cio domains --env-id <environment_id> from_addresses add \
 
 ## Step 5 -- Send a test email
 
-Send a test email to the authenticated user.
+Send a test email to the email the user signed up with or authenticated as — it is automatically opted in.
 
 **Note:** The send command uses `--environment-id` (not `--env-id` like domain commands). Pass `--from` as a bare email address with no display name.
 
@@ -176,9 +170,17 @@ Personalize subject/body with the company name. Email may land in spam until DNS
 
 ---
 
+## Step 6 -- Explain go-live costs when the user is ready
+
+The onboarding finish line is still a test email. If the user asks about
+launching, sending to real customers, plan limits, or go-live costs, follow
+[billing.md](billing.md).
+
+---
+
 ## Done
 
-Now help the user integrate Customer.io into their app:
+Now help the user integrate Customer.io into their app with the starter workflows below:
 
 - **In-app messages**: identify where to add the web or mobile SDK for in-app messaging
 - **Push notifications**: set up their mobile app for push via the mobile SDK

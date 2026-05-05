@@ -14,7 +14,7 @@ func ValidateResourceID(id string) error {
 	}
 
 	for i, r := range id {
-		if r < 0x20 {
+		if r < 0x20 || r == 0x7F {
 			return &IDValidationError{
 				Field:  "id",
 				Value:  id,
@@ -28,7 +28,7 @@ func ValidateResourceID(id string) error {
 			return &IDValidationError{
 				Field:  "id",
 				Value:  id,
-				Reason: fmt.Sprintf("ID must be numeric, contains '%c'", banned),
+				Reason: fmt.Sprintf("ID contains reserved path character '%c'", banned),
 			}
 		}
 	}
@@ -39,6 +39,41 @@ func ValidateResourceID(id string) error {
 				Field:  "id",
 				Value:  id,
 				Reason: fmt.Sprintf("ID must be numeric, contains '%c'", r),
+			}
+		}
+	}
+
+	return nil
+}
+
+// ValidatePathSegmentID validates that id is a non-empty, single path segment.
+// It is intentionally semantic-free for generic API path placeholders, while
+// still rejecting characters that could smuggle query fragments, traversal, or
+// pre-encoded path data.
+func ValidatePathSegmentID(id string) error {
+	if id == "" {
+		return &IDValidationError{Field: "id", Value: id, Reason: "ID must not be empty"}
+	}
+	if id == "." || id == ".." {
+		return &IDValidationError{Field: "id", Value: id, Reason: "ID must not be a dot path segment"}
+	}
+
+	for i, r := range id {
+		if r < 0x20 || r == 0x7F {
+			return &IDValidationError{
+				Field:  "id",
+				Value:  id,
+				Reason: fmt.Sprintf("ID contains control character at position %d (U+%04X)", i, r),
+			}
+		}
+	}
+
+	for _, banned := range invalidIDChars {
+		if strings.ContainsRune(id, banned) {
+			return &IDValidationError{
+				Field:  "id",
+				Value:  id,
+				Reason: fmt.Sprintf("ID contains reserved path character '%c'", banned),
 			}
 		}
 	}
