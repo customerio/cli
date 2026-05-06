@@ -50,13 +50,19 @@ Examples: "do I need to purchase a plan to go live?", "what does my plan
 include?", "how much does this cost?", "can I send to real customers?",
 "upgrade my plan", "buy credits", "what plan am I on?".
 
-## If the user wants to integrate an SDK
+## If the user wants to integrate Customer.io into their app
 
-Follow [integration.md](integration.md) only when the user
-**specifically** asks to add an SDK, instrument identify/track calls,
-set up in-app messaging, push notifications, or connect their
-codebase to Customer.io. The distinction is that they already have
-a working account and want to wire it into code.
+Follow [integration.md](integration.md) when the user wants to add,
+integrate, install, wire, hook up, or connect Customer.io to an existing
+app or codebase. This covers SDK install, identify/track instrumentation,
+in-app messaging, push notifications, and transactional sends from app
+code. The signal is "I have a project open and want Customer.io in it" —
+the user does not need to name an SDK.
+
+Examples: "add Customer.io to my app", "integrate Customer.io", "wire
+Customer.io into this project", "install the Customer.io SDK", "send
+transactional emails from my app", "track events from my backend",
+"hook up identify calls".
 
 ## If a command fails with an auth error
 
