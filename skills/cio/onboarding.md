@@ -157,16 +157,18 @@ Send a test email to the email the user signed up with or authenticated as — i
 
 **Note:** The send command uses `--environment-id` (not `--env-id` like domain commands). Pass `--from` as a bare email address with no display name.
 
+Compose a polished HTML body — clean typography, a centered card, friendly tone. Personalize the subject and body with the company name when known. Don't reuse the literal example below verbatim; treat it as a baseline and write something that feels designed, not debug output.
+
 ```bash
 cio send email --environment-id <environment_id> \
   --to <authenticated-user-email> \
   --from <sender@domain> \
-  --subject "Hello from Customer.io" \
-  --body "<h1>It works!</h1><p>Your Customer.io account is set up and ready to go.</p>" \
+  --subject "Welcome to Customer.io" \
+  --body '<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;max-width:480px;margin:40px auto;padding:40px 32px;background:#ffffff;border:1px solid #eaeaea;border-radius:12px;text-align:center;color:#1d1d1f;"><h1 style="margin:0 0 16px;font-size:24px;font-weight:600;">You are all set 🎉</h1><p style="margin:0 0 12px;font-size:16px;line-height:1.5;color:#424245;">Your Customer.io account is configured and your sending domain is live.</p><p style="margin:0 0 24px;font-size:16px;line-height:1.5;color:#424245;">This is the first email from your new setup — nice work.</p><p style="margin:0;font-size:13px;color:#86868b;">— The Customer.io team</p></div>' \
   --watch
 ```
 
-Personalize subject/body with the company name. Email may land in spam until DNS records are verified.
+Email may land in spam until DNS records are verified.
 
 ---
 
@@ -178,13 +180,40 @@ launching, sending to real customers, plan limits, or go-live costs, follow
 
 ---
 
-## Done
+## Done — what to suggest next
 
-Now help the user integrate Customer.io into their app with the starter workflows below:
+**Do not present a menu of Customer.io features as next steps.** Do not
+list Journeys, Campaigns, Broadcasts, Segments, In-app, Push, SMS,
+Pipelines, or SDK integration as options for the user to pick from
+unless you have already checked the user's plan and confirmed each one
+is included on it. Listing them and then offering to "check what's
+ready" is the same failure as listing them outright — it implies they
+are all available.
 
-- **In-app messages**: identify where to add the web or mobile SDK for in-app messaging
-- **Push notifications**: set up their mobile app for push via the mobile SDK
-- **Profile and event data**: instrument their app to send identify/track calls so they can send personalized emails
-- **Email templates**: help them build a branded email template (if a branding skill exists, hand off to it)
+The right flow is the inverse:
 
-If you don't have access to a project codebase, ask the user if they'd like help integrating Customer.io into their app, and where the project is.
+1. Ask the user what they want to build or do next, in their own terms
+   (e.g. "send a welcome email when someone signs up", "send order
+   receipts from my app"). Don't seed the answer with product names.
+2. Once you know the goal, follow [billing.md](billing.md) to check the
+   account's plan and confirm — from live sources, not memory — whether
+   the plan supports that goal.
+3. If the plan supports it, help them build it. If it doesn't, say so
+   plainly and link the upgrade path from [billing.md](billing.md).
+   Don't soften it into "might need an upgrade".
+
+Do not characterize the user's plan from memory or training data. In
+particular, do not say any of the following unless
+[billing.md](billing.md) and the live source confirm it for the account:
+
+- That **Builder** is a free tier, sandbox, trial, or testing-only plan.
+  It is a real plan with its own go-live path.
+- That the user must **upgrade to a paid plan** to send to real
+  customers, go live, or use Customer.io for production.
+- That a specific feature is included or excluded on the user's plan.
+
+If the user has a project codebase open, integration help that fits
+their plan and goal is usually a strong next step; otherwise ask where
+the project is before suggesting integration work.
+[integration.md](integration.md) covers SDK and transactional-from-code
+paths.
