@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/customerio/cli/internal/filelock"
+	"github.com/customerio/cli/internal/useragent"
 )
 
 const (
@@ -277,6 +278,7 @@ func downloadSpec(ctx context.Context, httpClient *http.Client, url, etag, acces
 		return nil, "", err
 	}
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", useragent.Get())
 	if accessToken != "" {
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 	}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/customerio/cli/internal/client"
 	"github.com/customerio/cli/internal/output"
+	"github.com/customerio/cli/internal/useragent"
 	"github.com/customerio/cli/internal/validate"
 	"github.com/spf13/cobra"
 )
@@ -219,6 +220,7 @@ func GetJSONBody(cmd *cobra.Command) ([]byte, error) {
 // SetVersion sets the CLI version string (called from main with ldflags value).
 func SetVersion(v string) {
 	if v != "" {
+		useragent.SetVersion(v)
 		rootCmd.Version = v
 	}
 }

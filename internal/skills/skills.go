@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/customerio/cli/internal/filelock"
+	"github.com/customerio/cli/internal/useragent"
 )
 
 const (
@@ -211,6 +212,7 @@ func downloadSkills(ctx context.Context, httpClient *http.Client, url, etag stri
 		return nil, "", err
 	}
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", useragent.Get())
 	if etag != "" {
 		req.Header.Set("If-None-Match", etag)
 	}

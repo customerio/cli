@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/customerio/cli/internal/client"
 )
@@ -548,6 +549,75 @@ func TestAuthStatus_WithEnvToken(t *testing.T) {
 	}
 	if result["verified"] != true {
 		t.Errorf("expected verified=true, got %v (error: %v)", result["verified"], result["verify_error"])
+	}
+}
+
+func TestAuthStatus_WithEnvTokenReportsEnvAccountID(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("CIO_TOKEN", "sa_live_envtoken")
+	t.Setenv("CIO_ACCESS_TOKEN", "")
+
+	if err := client.WriteCredentials(&client.Credentials{
+		ServiceAccountToken:  "sa_live_filetoken",
+		AccountID:            "1",
+		Region:               "us",
+		AccessToken:          "jwt-file",
+		AccessTokenExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("seed credentials: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/service_accounts/oauth/token":
+			if err := r.ParseForm(); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			switch r.PostFormValue("client_secret") {
+			case "sa_live_envtoken":
+				_, _ = w.Write([]byte(`{"access_token":"jwt-env","token_type":"Bearer","expires_in":3600}`))
+			case "sa_live_filetoken":
+				_, _ = w.Write([]byte(`{"access_token":"jwt-file","token_type":"Bearer","expires_in":3600}`))
+			default:
+				w.WriteHeader(http.StatusUnauthorized)
+			}
+		case "/v1/accounts/current":
+			switch r.Header.Get("Authorization") {
+			case "Bearer jwt-env":
+				_, _ = w.Write([]byte(`{"account":{"id":2,"name":"Env Account","data_center":"eu"}}`))
+			case "Bearer jwt-file":
+				_, _ = w.Write([]byte(`{"account":{"id":1,"name":"File Account","data_center":"us"}}`))
+			default:
+				w.WriteHeader(http.StatusUnauthorized)
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	stdout, _, err := executeCommand("auth", "status", "--api-url", server.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\nstdout: %s", err, stdout)
+	}
+	if result["token_source"] != "environment" {
+		t.Errorf("expected token_source 'environment', got %v", result["token_source"])
+	}
+	if result["verified"] != true {
+		t.Errorf("expected verified=true, got %v (error: %v)", result["verified"], result["verify_error"])
+	}
+	if result["account_id"] != "2" {
+		t.Errorf("expected account_id from environment token, got %v", result["account_id"])
+	}
+	if result["region"] != "eu" {
+		t.Errorf("expected region from environment token, got %v", result["region"])
 	}
 }
 

@@ -12,11 +12,14 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/customerio/cli/internal/useragent"
 )
 
 // setStandardHeaders stamps headers that every outgoing CLI request should
 // carry:
 //
+//   - User-Agent — identifies this CLI and its release version in API logs.
 //   - X-Validate: strict — opts into strict server-side JSON validation so
 //     that unknown/typo'd body fields produce a 400 instead of a silent 200.
 //     Harmless on GETs and form-encoded bodies (the server only consults it
@@ -25,6 +28,7 @@ import (
 //     sandbox that runs the CLI on behalf of an AI agent sets this so
 //     downstream metrics can attribute traffic to the agent.
 func setStandardHeaders(req *http.Request) {
+	req.Header.Set("User-Agent", useragent.Get())
 	req.Header.Set("X-Validate", "strict")
 	if os.Getenv("CIO_AGENT") == "1" {
 		req.Header.Set("X-CIO-Agent", "1")
@@ -155,7 +159,7 @@ func (c *Client) EnsureAccessToken(ctx context.Context) (string, error) {
 	}
 
 	// Check the file cache.
-	if cached := CachedAccessToken(c.readOnly, c.scopes); cached != "" {
+	if cached := CachedAccessTokenForServiceAccount(c.serviceAccountToken, c.readOnly, c.scopes); cached != "" {
 		c.accessToken = cached
 		// File cache already applies 60s buffer, so set a conservative in-memory expiry.
 		c.accessTokenExpiresAt = time.Now().Add(55 * time.Minute)
@@ -180,7 +184,7 @@ func (c *Client) EnsureAccessToken(ctx context.Context) (string, error) {
 	}
 
 	// Cache for future invocations.
-	_ = CacheAccessToken(token, expiresIn, c.readOnly, c.scopes)
+	_ = CacheAccessTokenForServiceAccount(c.serviceAccountToken, token, expiresIn, c.readOnly, c.scopes)
 
 	return token, nil
 }
@@ -278,6 +282,30 @@ type DiscoverRegionResult struct {
 	AccessToken string
 	ExpiresIn   int
 	AccountID   string
+}
+
+// AccountInfo describes the account represented by the active access token.
+type AccountInfo struct {
+	Region    string
+	AccountID string
+}
+
+// CurrentAccountInfo returns account metadata for the active token.
+func (c *Client) CurrentAccountInfo(ctx context.Context) (*AccountInfo, error) {
+	accessToken, err := c.EnsureAccessToken(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	region, accountID, err := fetchAccountInfo(ctx, c.httpClient, c.baseURL, accessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	return &AccountInfo{
+		Region:    region,
+		AccountID: accountID,
+	}, nil
 }
 
 // DiscoverRegion exchanges the sa_live_ token against the default US endpoint,

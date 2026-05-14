@@ -208,73 +208,92 @@ cio transactional list --environment-id <environment_id>
 
 ### From code (HTTP API)
 
-The Track API endpoint varies by region:
+For production backend code, **issue a workspace-scoped App API key** — do not embed the `sa_live_` SA token. SA tokens are account-level (full access, all workspaces); App API keys are scoped to a single workspace and are the right fit for backend integrations.
 
-| Region | Track API base URL |
-|--------|-------------------|
-| US | `https://track.customer.io` |
-| EU | `https://track-eu.customer.io` |
-
-Auth uses the `sa_live_` token directly as a Bearer token (no OAuth exchange required). Include the `X-Workspace-Id` header to select the workspace.
+Create one via the CLI (one-time setup):
 
 ```bash
-AUTH_HEADER='Authorization: Bearer <service-account-token>'
-curl --request POST \
-  --url https://track.customer.io/v1/send/email \
-  --header "$AUTH_HEADER" \
-  --header "X-Workspace-Id: <environment_id>" \
-  --header "Content-Type: application/json" \
-  -d '{
-    "transactional_message_id": "1",
-    "to": "user@example.com",
-    "identifiers": {"email": "user@example.com"},
-    "message_data": {
-      "name": "Alice",
-      "order_id": "123"
-    }
-  }'
+cio api /v1/environments/{environment_id}/ext_api_keys -X POST \
+  --json '{"ext_api_key":{"name":"backend-prod"}}'
 ```
 
-For one-off emails without a template, include the content inline:
+The response includes the full Bearer value on creation — capture it and copy into the backend's env var (e.g. `CIO_APP_API_KEY`). Subsequent `GET .../ext_api_keys` calls return only a hint (last few characters), not the full key. Lost keys can't be recovered — issue a new one.
 
-```bash
-AUTH_HEADER='Authorization: Bearer <service-account-token>'
-curl --request POST \
-  --url https://track.customer.io/v1/send/email \
-  --header "$AUTH_HEADER" \
-  --header "X-Workspace-Id: <environment_id>" \
-  --header "Content-Type: application/json" \
-  -d '{
-    "to": "user@example.com",
-    "identifiers": {"email": "user@example.com"},
-    "from": "Acme <noreply@example.com>",
-    "subject": "Your order shipped",
-    "body": "<h1>Order #123 is on its way</h1>"
-  }'
-```
+Endpoints — one per channel, all share a common base shape:
 
-To call from code, translate the cURL pattern above into the user's language -- it's a plain `POST` with JSON body, Bearer auth, and the `X-Workspace-Id` header. No SDK needed.
-
-### Other transactional message types
-
-The same pattern works for push, SMS, and in-app -- just change the endpoint path:
-
-| Type | Endpoint |
-|------|----------|
+| Channel | Path |
+|---------|------|
 | Email | `POST /v1/send/email` |
 | Push | `POST /v1/send/push` |
 | SMS | `POST /v1/send/sms` |
-| In-app | `POST /v1/send/inbox_message` |
+| In-app | `POST /v1/send/in_app` |
+| Inbox | `POST /v1/send/inbox_message` |
 
-Push, SMS, and in-app always require a `transactional_message_id` (template). Only email supports one-off sends without a template.
+App API base URL varies by region:
 
-Docs: https://docs.customer.io/journeys/transactional-email/
+| Region | App API base URL |
+|--------|------------------|
+| US | `https://api.customer.io` |
+| EU | `https://api-eu.customer.io` |
+
+The HTTP shape is the API contract — produce the equivalent in whatever language the user is using.
+
+```http
+POST https://api.customer.io/v1/send/email
+Authorization: Bearer <APP_API_KEY>
+Content-Type: application/json
+
+{
+  "transactional_message_id": "order_confirmation",
+  "auto_create": true,
+  "identifiers": { "id": "user-123" },
+  "to": "user@example.com",
+  "message_data": { "name": "Alice", "order_id": "123" }
+}
+```
+
+For one-off emails without a template, include the content inline (no `transactional_message_id` needed):
+
+```http
+POST https://api.customer.io/v1/send/email
+Authorization: Bearer <APP_API_KEY>
+Content-Type: application/json
+
+{
+  "to": "user@example.com",
+  "identifiers": { "email": "user@example.com" },
+  "from": "Acme <noreply@example.com>",
+  "subject": "Your order shipped",
+  "body": "<h1>Order #123 is on its way</h1>"
+}
+```
+
+The `X-Workspace-Id` header is **not** needed when using an App API key — the key is already workspace-scoped. (The header is only needed for SA-token-based calls, which the CLI itself handles internally.)
+
+### The `auto_create` paradigm — simplest pattern for backend sends
+
+Pick a stable string identifier (`"order_confirmation"`, `"password_reset"`, `"shipping_update"`) and pass it as `transactional_message_id` along with `auto_create: true`. The first call creates a transactional message in the workspace with that name and the channel matching the endpoint you hit (`/v1/send/email` → email-typed message, `/v1/send/push` → push, etc.). Subsequent calls find and reuse the existing message. Keep `auto_create: true` on every send — it's idempotent.
+
+Name constraints: must be a non-numeric string, non-empty, ≤ 191 unicode characters. A name that parses as a number (e.g. `"42"`) is rejected; `auto_create` is text-only.
+
+**When NOT to use `auto_create`:**
+
+- **In-app and inbox messages** — auto-created templates have no `body_json`, so deliveries queue successfully but render empty. Create the message explicitly via the management API or UI first, then configure the template.
+- **When the template is authored ahead of time** (e.g. the email body is built in Design Studio or the UI). Create the message explicitly and call with the resulting numeric ID or string name; omit `auto_create`.
+
+### Channel notes
+
+- **Email:** can send *with* a `transactional_message_id` (templated) or *without* (inline content via `to`, `from`, `subject`, `body`, `body_plain`).
+- **Push, SMS, in-app, inbox:** always require a `transactional_message_id`.
+- The full per-channel field list (push `custom_payload`, SMS `tracked`, etc.) is in the API reference: https://customer.io/docs/api/app/#tag/Transactional
+
+Docs: https://docs.customer.io/journeys/transactional-email/ · https://customer.io/docs/api/app/#tag/Transactional
 
 ### Important notes
 
-- The Track API uses the `sa_live_` token directly -- no OAuth token exchange needed
+- For backend code, use a workspace-scoped App API key (Bearer auth against `api.customer.io`) — not the `sa_live_` SA token. The CLI's own `cio send` and `cio transactional send` commands use the SA token internally, which is fine for testing, but production code should use a per-workspace App API key.
 - Do NOT retry failed sends automatically -- retrying a POST risks duplicate deliveries
-- For EU regions, use `https://track-eu.customer.io` instead
+- For EU regions, use `https://api-eu.customer.io`
 
 ---
 
