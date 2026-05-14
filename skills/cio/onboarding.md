@@ -74,6 +74,8 @@ Prints a URL. User opens it, logs in, copies the `sa_live_...` token, pastes it 
 echo "sa_live_..." | cio auth login --with-token
 ```
 
+> **Note on tokens:** the `sa_live_` token authenticates the CLI itself (account-level, used internally for `cio api`, `cio send`, etc.). It should **not** be embedded in the user's production backend code. For backend integrations, issue a workspace-scoped App API key — see [`integration.md`](integration.md) Step 6.
+
 ### Verify auth
 
 ```bash

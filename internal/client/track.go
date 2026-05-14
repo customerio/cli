@@ -57,6 +57,7 @@ func DoTrack(ctx context.Context, req TrackRequest) (json.RawMessage, error) {
 	httpReq.Header.Set("Accept", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+req.ServiceAccountToken)
 	httpReq.Header.Set(WorkspaceIDHeader, req.WorkspaceID)
+	setStandardHeaders(httpReq)
 
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {

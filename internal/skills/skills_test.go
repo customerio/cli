@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/customerio/cli/internal/useragent"
 )
 
 func testResponse() *SkillsResponse {
@@ -214,6 +216,31 @@ func TestEnsureSkills_ForceRefresh(t *testing.T) {
 	}
 	if requestCount != 2 {
 		t.Fatalf("expected 2 requests after force refresh, got %d", requestCount)
+	}
+}
+
+func TestEnsureSkills_UserAgentHeader(t *testing.T) {
+	resp := testResponse()
+	data, _ := json.Marshal(resp)
+
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("User-Agent")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(data)
+	}))
+	defer srv.Close()
+
+	_, err := EnsureSkills(context.Background(), LoadOptions{
+		BaseURL:  srv.URL,
+		CacheDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got != useragent.Get() {
+		t.Errorf("User-Agent: got %q, want %q", got, useragent.Get())
 	}
 }
 

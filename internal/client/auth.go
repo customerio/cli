@@ -147,8 +147,24 @@ func ResolveRegion(apiURL string, apiURLChanged bool) string {
 // accidentally using a restricted token for a full-access session).
 // The scopes parameter must match the cached scopes exactly for reuse.
 func CachedAccessToken(readOnly bool, scopes []string) string {
+	return cachedAccessToken("", readOnly, scopes)
+}
+
+// CachedAccessTokenForServiceAccount returns a cached JWT only when it belongs
+// to the same service-account token that is active for this invocation.
+func CachedAccessTokenForServiceAccount(serviceAccountToken string, readOnly bool, scopes []string) string {
+	if serviceAccountToken == "" {
+		return ""
+	}
+	return cachedAccessToken(serviceAccountToken, readOnly, scopes)
+}
+
+func cachedAccessToken(serviceAccountToken string, readOnly bool, scopes []string) string {
 	creds, err := ReadCredentials()
 	if err != nil {
+		return ""
+	}
+	if serviceAccountToken != "" && creds.ServiceAccountToken != serviceAccountToken {
 		return ""
 	}
 	if creds.AccessToken == "" {
@@ -190,6 +206,19 @@ func stringsEqual(a, b []string) bool {
 // Holds an exclusive lock across the read-modify-write sequence so two
 // concurrent invocations don't lose each other's update.
 func CacheAccessToken(accessToken string, expiresIn int, readOnly bool, scopes []string) error {
+	return cacheAccessToken("", accessToken, expiresIn, readOnly, scopes)
+}
+
+// CacheAccessTokenForServiceAccount stores a JWT only when the stored config
+// still belongs to the same service-account token that minted the JWT.
+func CacheAccessTokenForServiceAccount(serviceAccountToken, accessToken string, expiresIn int, readOnly bool, scopes []string) error {
+	if serviceAccountToken == "" {
+		return nil
+	}
+	return cacheAccessToken(serviceAccountToken, accessToken, expiresIn, readOnly, scopes)
+}
+
+func cacheAccessToken(serviceAccountToken, accessToken string, expiresIn int, readOnly bool, scopes []string) error {
 	unlock, err := lockConfigDir()
 	if err != nil {
 		// Can't cache without a lock — don't fail the caller's request.
@@ -200,6 +229,10 @@ func CacheAccessToken(accessToken string, expiresIn int, readOnly bool, scopes [
 	creds, err := ReadCredentials()
 	if err != nil {
 		// No existing config — can't cache without stored credentials.
+		return nil
+	}
+	if serviceAccountToken != "" && creds.ServiceAccountToken != serviceAccountToken {
+		// Env/flag overrides should not rewrite the cache for the stored token.
 		return nil
 	}
 	creds.AccessToken = accessToken

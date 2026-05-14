@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/customerio/cli/internal/useragent"
 )
 
 func TestClient_Do_BearerToken(t *testing.T) {
@@ -698,6 +700,55 @@ func TestClient_Do_ValidateHeader(t *testing.T) {
 	}
 	if got != "strict" {
 		t.Errorf("X-Validate: got %q, want %q", got, "strict")
+	}
+}
+
+func TestClient_Do_UserAgentHeader(t *testing.T) {
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("User-Agent")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	c := New(Config{
+		BaseURL:     server.URL,
+		AccessToken: "test-jwt",
+		RetryConfig: &RetryConfig{MaxRetries: 0, SleepFn: ContextSleep},
+	})
+	if _, err := c.Do(context.Background(), "GET", "/test", nil, nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != useragent.Get() {
+		t.Errorf("User-Agent: got %q, want %q", got, useragent.Get())
+	}
+}
+
+func TestDoTrack_StandardHeaders(t *testing.T) {
+	var gotUserAgent string
+	var gotValidate string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUserAgent = r.Header.Get("User-Agent")
+		gotValidate = r.Header.Get("X-Validate")
+		_, _ = w.Write([]byte(`{"delivery_id":"abc"}`))
+	}))
+	defer server.Close()
+
+	if _, err := DoTrack(context.Background(), TrackRequest{
+		TrackBaseURL:        server.URL,
+		Path:                "/v1/send/email",
+		ServiceAccountToken: "sa_live_test",
+		WorkspaceID:         "123",
+		Body:                json.RawMessage(`{"to":"test@example.com"}`),
+		Timeout:             time.Second,
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotUserAgent != useragent.Get() {
+		t.Errorf("User-Agent: got %q, want %q", gotUserAgent, useragent.Get())
+	}
+	if gotValidate != "strict" {
+		t.Errorf("X-Validate: got %q, want %q", gotValidate, "strict")
 	}
 }
 

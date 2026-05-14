@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/customerio/cli/internal/useragent"
 )
 
 func testSpec() string {
@@ -508,6 +510,40 @@ func TestEnsureSpecs_UnauthenticatedNoAuthHeader(t *testing.T) {
 	for i, auth := range receivedAuth {
 		if auth != "" {
 			t.Errorf("request %d: expected no Authorization header, got %q", i, auth)
+		}
+	}
+}
+
+func TestEnsureSpecs_UserAgentHeader(t *testing.T) {
+	var received []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received = append(received, r.Header.Get("User-Agent"))
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/openapi.json":
+			w.Write([]byte(testSpec()))
+		case "/cdp/api/openapi.json":
+			w.Write([]byte(testCDPSpec()))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	_, _, err := EnsureSpecs(context.Background(), LoadRegistryOptions{
+		BaseURL:  server.URL,
+		CacheDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(received) != len(defaultSpecSources) {
+		t.Fatalf("got %d requests, want %d", len(received), len(defaultSpecSources))
+	}
+	for i, got := range received {
+		if got != useragent.Get() {
+			t.Errorf("request %d User-Agent: got %q, want %q", i, got, useragent.Get())
 		}
 	}
 }

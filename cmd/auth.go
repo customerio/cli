@@ -220,17 +220,19 @@ Token resolution order:
 			"token":        client.MaskToken(token),
 		}
 
-		// Show stored region/URL and account ID.
-		if creds, err := client.ReadCredentials(); err == nil {
-			if creds.Region != "" {
-				statusResult["region"] = creds.Region
-			}
-			if creds.AccountID != "" {
-				statusResult["account_id"] = creds.AccountID
+		// Stored metadata is only authoritative when the stored token is active.
+		if tokenSource == "config_file" {
+			if creds, err := client.ReadCredentials(); err == nil {
+				if creds.Region != "" {
+					statusResult["region"] = creds.Region
+				}
+				if creds.AccountID != "" {
+					statusResult["account_id"] = creds.AccountID
+				}
 			}
 		}
 
-		// Verify by exchanging the token.
+		// Verify the active token and derive account metadata from that session.
 		c := clientFromCmd(cmd)
 		if c != nil {
 			statusResult["base_url"] = c.BaseURL()
@@ -241,6 +243,16 @@ Token resolution order:
 				statusResult["verify_error"] = err.Error()
 			} else {
 				statusResult["verified"] = true
+				if info, err := c.CurrentAccountInfo(cmd.Context()); err == nil {
+					if info.Region != "" {
+						statusResult["region"] = info.Region
+					}
+					if info.AccountID != "" {
+						statusResult["account_id"] = info.AccountID
+					}
+				} else if tokenSource != "config_file" {
+					statusResult["account_info_error"] = err.Error()
+				}
 			}
 		}
 

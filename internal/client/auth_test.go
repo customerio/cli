@@ -130,6 +130,51 @@ func TestCacheAccessToken_ConcurrentWritesProduceValidConfig(t *testing.T) {
 	}
 }
 
+func TestCachedAccessTokenRequiresMatchingServiceAccountToken(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	if err := WriteCredentials(&Credentials{
+		ServiceAccountToken:  "sa_live_file",
+		AccessToken:          "jwt-file",
+		AccessTokenExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("seed write: %v", err)
+	}
+
+	if got := CachedAccessTokenForServiceAccount("sa_live_env", false, nil); got != "" {
+		t.Fatalf("expected mismatched token cache miss, got %q", got)
+	}
+	if got := CachedAccessTokenForServiceAccount("sa_live_file", false, nil); got != "jwt-file" {
+		t.Fatalf("expected matching token cache hit, got %q", got)
+	}
+}
+
+func TestCacheAccessTokenSkipsMismatchedServiceAccountToken(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	if err := WriteCredentials(&Credentials{
+		ServiceAccountToken:  "sa_live_file",
+		AccessToken:          "jwt-file",
+		AccessTokenExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("seed write: %v", err)
+	}
+
+	if err := CacheAccessTokenForServiceAccount("sa_live_env", "jwt-env", 3600, false, nil); err != nil {
+		t.Fatalf("cache write: %v", err)
+	}
+
+	got, err := ReadCredentials()
+	if err != nil {
+		t.Fatalf("read credentials: %v", err)
+	}
+	if got.AccessToken != "jwt-file" {
+		t.Fatalf("expected cached access token to stay unchanged, got %q", got.AccessToken)
+	}
+}
+
 func TestWriteCredentials_AtomicNoPartialFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
