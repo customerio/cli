@@ -64,6 +64,15 @@ Customer.io into this project", "install the Customer.io SDK", "send
 transactional emails from my app", "track events from my backend",
 "hook up identify calls".
 
+## If the user wants to open the Customer.io UI
+
+Run `cio auth login`. When the user is already authenticated, it prints
+a one-click browser link — no password needed. If not authenticated, it
+starts the interactive login flow (see auth error section below).
+
+Examples: "open the UI", "log into Customer.io", "open the dashboard",
+"take me to Customer.io".
+
 ## If a command fails with an auth error
 
 `cio auth login` auto-discovers the data center, so don't pass a region
