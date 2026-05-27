@@ -19,6 +19,22 @@ To build from source instead:
 go install github.com/customerio/cli@latest
 ```
 
+## Uninstall
+
+```bash
+# If installed via npm
+npm uninstall -g @customerio/cli
+
+# If installed via go install
+rm -f "$(go env GOPATH)/bin/cio"
+```
+
+To remove stored credentials and cached data:
+
+```bash
+rm -rf ~/.cio
+```
+
 ## Install the agent skill
 
 This repo ships a [SKILL.md](skills/cio/SKILL.md) so Claude Code, Cursor, Codex, Windsurf, and other agents that support [open agent skills](https://github.com/vercel-labs/skills) know how to drive the CLI. Install it with:

@@ -9,6 +9,7 @@ import (
 
 	"github.com/customerio/cli/internal/client"
 	"github.com/customerio/cli/internal/output"
+	"github.com/customerio/cli/internal/tui"
 	"github.com/customerio/cli/internal/useragent"
 	"github.com/customerio/cli/internal/validate"
 	"github.com/spf13/cobra"
@@ -51,6 +52,15 @@ for direct token-based usage.`,
 }
 
 func init() {
+	defaultHelp := rootCmd.HelpFunc()
+	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
+		if cmd == rootCmd {
+			tui.RenderHelp(cmd.OutOrStdout())
+			return
+		}
+		defaultHelp(cmd, args)
+	})
+
 	flags := rootCmd.PersistentFlags()
 
 	flags.String("json", "", "Raw JSON request body or @filename to read from file")
