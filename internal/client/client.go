@@ -27,11 +27,15 @@ import (
 //   - X-CIO-Agent: 1 — set only when the CIO_AGENT env var is "1". The
 //     sandbox that runs the CLI on behalf of an AI agent sets this so
 //     downstream metrics can attribute traffic to the agent.
+//   - X-CIO-Capability-Grant — forwarded from $X_CIO_CAPABILITY_GRANT so the env carries a session-scoped grant without a CLI flag.
 func setStandardHeaders(req *http.Request) {
 	req.Header.Set("User-Agent", useragent.Get())
 	req.Header.Set("X-Validate", "strict")
 	if os.Getenv("CIO_AGENT") == "1" {
 		req.Header.Set("X-CIO-Agent", "1")
+	}
+	if grant := os.Getenv("X_CIO_CAPABILITY_GRANT"); grant != "" {
+		req.Header.Set("X-CIO-Capability-Grant", grant)
 	}
 }
 
