@@ -796,3 +796,46 @@ func TestClient_Do_AgentHeader(t *testing.T) {
 		})
 	}
 }
+
+func TestClient_Do_CapabilityGrantHeader(t *testing.T) {
+	cases := []struct {
+		name     string
+		envValue string
+		envSet   bool
+		want     string
+	}{
+		{"env unset", "", false, ""},
+		{"env empty", "", true, ""},
+		{"env set", "grant-jwt-abc", true, "grant-jwt-abc"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.envSet {
+				t.Setenv("X_CIO_CAPABILITY_GRANT", tc.envValue)
+			} else {
+				t.Setenv("X_CIO_CAPABILITY_GRANT", "")
+				_ = os.Unsetenv("X_CIO_CAPABILITY_GRANT")
+			}
+
+			var got string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				got = r.Header.Get("X-CIO-Capability-Grant")
+				_, _ = w.Write([]byte(`{"ok":true}`))
+			}))
+			defer server.Close()
+
+			c := New(Config{
+				BaseURL:     server.URL,
+				AccessToken: "test-jwt",
+				RetryConfig: &RetryConfig{MaxRetries: 0, SleepFn: ContextSleep},
+			})
+			if _, err := c.Do(context.Background(), "GET", "/test", nil, nil); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("X-CIO-Capability-Grant: got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
