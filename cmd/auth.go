@@ -105,9 +105,12 @@ For CI or non-interactive use:
 		}
 
 		if !client.IsServiceAccountToken(token) {
-			err := fmt.Errorf("token must start with %q — got %q", client.ServiceAccountTokenPrefix, token[:min(len(token), 10)])
+			err := fmt.Errorf("token must start with %q or %q — got %q",
+				client.ServiceAccountTokenPrefix,
+				client.SandboxServiceAccountTokenPrefix,
+				token[:min(len(token), 10)])
 			output.PrintError(output.CodeValidationError, err.Error(), map[string]any{
-				"hint": "Service account tokens start with sa_live_. Create one in the Customer.io UI under Settings > Service Accounts.",
+				"hint": "Production service account tokens start with sa_live_. Sandbox Builder accounts use sa_sandbox_ until go-live.",
 			})
 			return err
 		}
@@ -378,9 +381,9 @@ func runAuthSignupVerify(cmd *cobra.Command, args []string) error {
 	}
 
 	// Persist the bootstrap token so subsequent cio calls are authenticated.
-	// The returned sa_live_ token is shown once by the server; saving it here
-	// is the agent-friendly default. On save failure we still print the
-	// response so the caller can capture the token manually.
+	// The returned service account token is shown once by the server; saving
+	// it here is the agent-friendly default. On save failure we still print
+	// the response so the caller can capture the token manually.
 	saveErr := saveSignupCredentials(result, body, baseURL)
 
 	if err := output.FprintProcess(cmd.OutOrStdout(), result, GetJQFlag(cmd)); err != nil {
@@ -414,7 +417,7 @@ func saveSignupCredentials(response json.RawMessage, requestBody []byte, baseURL
 		return fmt.Errorf("signup response missing 'token'")
 	}
 	if !client.IsServiceAccountToken(parsed.Token) {
-		return fmt.Errorf("signup response token is not an sa_live_ credential")
+		return fmt.Errorf("signup response token is not a supported service account credential")
 	}
 
 	accountID := strings.Trim(string(parsed.AccountID), `"`)

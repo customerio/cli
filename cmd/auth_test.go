@@ -167,6 +167,43 @@ func TestAuthLogin_SavesToken(t *testing.T) {
 	}
 }
 
+func TestAuthLogin_SavesSandboxToken(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("CIO_TOKEN", "")
+
+	server := oauthServer(t, "sa_sandbox_test123")
+	defer server.Close()
+
+	stdout, _, err := executeCommand("auth", "login", "sa_sandbox_test123", "--api-url", server.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\nstdout: %s", err, stdout)
+	}
+	if result["status"] != "ok" {
+		t.Errorf("expected status ok, got %v", result["status"])
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmpDir, ".cio", "config.json"))
+	if err != nil {
+		t.Fatalf("failed to read config file: %v", err)
+	}
+	var creds map[string]any
+	if err := json.Unmarshal(data, &creds); err != nil {
+		t.Fatalf("invalid JSON in config file: %v", err)
+	}
+	if creds["service_account_token"] != "sa_sandbox_test123" {
+		t.Errorf("expected sandbox token saved, got %v", creds["service_account_token"])
+	}
+	if creds["access_token"] != "jwt-test-session" {
+		t.Errorf("expected cached JWT, got %v", creds["access_token"])
+	}
+}
+
 func TestAuthLogin_UsesCIOAPIURLForTokenExchange(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
@@ -203,7 +240,7 @@ func TestAuthLogin_EmptyToken(t *testing.T) {
 func TestAuthLogin_BadPrefix(t *testing.T) {
 	_, _, err := executeCommand("auth", "login", "not_a_service_account_token")
 	if err == nil {
-		t.Fatal("expected error for non-sa_live_ token")
+		t.Fatal("expected error for non-service-account token")
 	}
 }
 
@@ -695,13 +732,18 @@ func signupServer(t *testing.T) *httptest.Server {
 		case "/v1/account_signup/code":
 			var req struct {
 				DataCenter string `json:"data_center"`
+				Sandbox    bool   `json:"sandbox"`
 			}
 			_ = json.Unmarshal(body, &req)
 			dc := req.DataCenter
 			if dc == "" {
 				dc = "us"
 			}
-			_, _ = fmt.Fprintf(w, `{"account_id":1,"environment_id":2,"user_id":3,"service_account_id":4,"token_id":5,"token":"sa_live_bootstrap","token_hint":"trap","expires_at":0,"data_center":%q}`, dc)
+			token := "sa_live_bootstrap"
+			if req.Sandbox {
+				token = "sa_sandbox_bootstrap"
+			}
+			_, _ = fmt.Fprintf(w, `{"account_id":1,"environment_id":2,"user_id":3,"service_account_id":4,"token_id":5,"token":%q,"token_hint":"trap","expires_at":0,"data_center":%q}`, token, dc)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -805,6 +847,48 @@ func TestAuthSignupVerify_ReturnsBootstrapToken(t *testing.T) {
 	// The server response includes data_center=eu (echoed from request body).
 	if creds["region"] != "eu" {
 		t.Errorf("expected region=eu (from response data_center), got %v", creds["region"])
+	}
+}
+
+func TestAuthSignupVerify_ReturnsSandboxBootstrapToken(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("CIO_TOKEN", "")
+
+	server := signupServer(t)
+	defer server.Close()
+
+	stdout, _, err := executeCommand("auth", "signup", "verify",
+		"--api-url", server.URL,
+		"--json", `{"email":"agent+demo@example.com","code":"123456","company_name":"Acme","first_name":"Ada","last_name":"Lovelace","data_center":"us","sandbox":true}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\nstdout: %s", err, stdout)
+	}
+	if result["token"] != "sa_sandbox_bootstrap" {
+		t.Errorf("expected sandbox bootstrap token, got %v", result["token"])
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmpDir, ".cio", "config.json"))
+	if err != nil {
+		t.Fatalf("expected config written, got: %v", err)
+	}
+	var creds map[string]any
+	if err := json.Unmarshal(data, &creds); err != nil {
+		t.Fatalf("invalid config JSON: %v", err)
+	}
+	if creds["service_account_token"] != "sa_sandbox_bootstrap" {
+		t.Errorf("expected sandbox token saved, got %v", creds["service_account_token"])
+	}
+	if creds["account_id"] != "1" {
+		t.Errorf("expected account_id=1, got %v", creds["account_id"])
+	}
+	if creds["region"] != "us" {
+		t.Errorf("expected region=us, got %v", creds["region"])
 	}
 }
 

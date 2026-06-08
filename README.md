@@ -45,7 +45,7 @@ npx skills add customerio/cli
 
 ## Authentication
 
-The CLI uses **service account tokens** (`sa_live_...`) for authentication. These are exchanged for short-lived JWTs via OAuth 2.0 client credentials, just like `gh auth`.
+The CLI uses **service account tokens** for authentication. Production tokens use `sa_live_...`; Builder sandbox signup can temporarily return `sa_sandbox_...` until go-live. These are exchanged for short-lived JWTs via OAuth 2.0 client credentials, just like `gh auth`.
 
 ### Login
 
@@ -77,7 +77,7 @@ also need `CIO_REGION=us|eu` or `--api-url`.
 
 ### How It Works
 
-1. You provide a `sa_live_...` token (from Customer.io UI → Account Settings → Manage API Credentials → Service Accounts)
+1. You provide a service account token (`sa_live_...` from Customer.io UI → Account Settings → Manage API Credentials → Service Accounts, or `sa_sandbox_...` returned by Builder sandbox signup)
 2. The CLI exchanges it for a JWT via `POST /v1/service_accounts/oauth/token`
 3. The JWT is cached locally and refreshed automatically when it expires
 4. All API calls use `Authorization: Bearer <jwt>`
