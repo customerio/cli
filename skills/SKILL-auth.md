@@ -5,13 +5,13 @@ domain: Authentication, token management, OAuth exchange, credential storage
 
 # Auth
 
-The Customer.io CLI (`cio`) authenticates using service account tokens (`sa_live_...`) exchanged for short-lived JWTs via OAuth 2.0 client credentials grant against the UI API at `fly.customer.io`.
+The Customer.io CLI (`cio`) authenticates using service account tokens exchanged for short-lived JWTs via OAuth 2.0 client credentials grant against the UI API at `fly.customer.io`. Production tokens use `sa_live_...`; sandbox Builder accounts use `sa_sandbox_...` until go-live.
 
 ## Invariants
 
 - Tokens are stored in `~/.cio/config.json` with `0600` permissions.
 - Token resolution: `--token` flag → `CIO_TOKEN` env var → config file.
-- `sa_live_` tokens CANNOT be used directly as Bearer tokens. They must be exchanged.
+- `sa_live_` and `sa_sandbox_` tokens CANNOT be used directly as Bearer tokens. They must be exchanged.
 - The exchange endpoint is `POST /v1/service_accounts/oauth/token` (unauthenticated, rate-limited by IP).
 - The exchange returns a short-lived JWT (`access_token`) with an `expires_in` field.
 - The CLI caches the JWT and re-exchanges automatically when it expires (with 60s buffer).
@@ -19,9 +19,9 @@ The Customer.io CLI (`cio`) authenticates using service account tokens (`sa_live
 - Region is stored in config and determines the base URL for all requests.
 - `auth login` and `auth logout` do NOT require an existing valid token.
 - `auth status` exchanges the token to verify it works.
-- `auth token` prints the raw `sa_live_` token to stdout (not the JWT).
+- `auth token` prints the raw service account token to stdout (not the JWT).
 - `auth signup start` and `auth signup verify` run unauthenticated; `--token` / `CIO_TOKEN` are ignored.
-- `auth signup verify` persists the returned `sa_live_` bootstrap token + `account_id` to `~/.cio/config.json` on success — no separate `auth login` needed afterward.
+- `auth signup verify` persists the returned bootstrap token + `account_id` to `~/.cio/config.json` on success — no separate `auth login` needed afterward.
 
 ## OAuth Exchange Details
 
@@ -41,6 +41,8 @@ Authorization: Basic base64(<service_account_id>:<sa_live_...>)
 ```
 
 The `client_id` is optional. If provided, it must match the service account ID.
+For sandbox Builder accounts, use the returned `sa_sandbox_...` token in the
+same `client_secret` position.
 
 ## Common Workflows
 
@@ -90,9 +92,10 @@ cio auth logout
 ### Provision a brand-new account (agentic signup)
 
 A 2-step unauthenticated flow that stands up a new Customer.io account and
-returns an Admin-scoped `sa_live_` bootstrap token. Use this when the agent
-has no existing credentials. Both subcommands honor `--api-url` (defaults
-to US) and `--dry-run`.
+returns an Admin-scoped bootstrap token. Non-sandbox signup returns `sa_live_...`;
+sandbox Builder signup returns `sa_sandbox_...`. Use this when the agent has
+no existing credentials. Both subcommands honor `--api-url` (defaults to US)
+and `--dry-run`.
 
 ```bash
 # Step 1 — email a 6-digit verification code
@@ -109,7 +112,7 @@ cio auth signup verify --json '{
 }'
 ```
 
-On success, `verify` writes the returned `sa_live_` bootstrap token and
+On success, `verify` writes the returned bootstrap token and
 `account_id` to `~/.cio/config.json`, so the next `cio api ...` call is
 already authenticated. The full response (including `token`) is still
 printed once to stdout; the server will not return it again.

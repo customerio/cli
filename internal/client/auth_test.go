@@ -257,6 +257,8 @@ func TestMaskToken(t *testing.T) {
 		{"ab", "**"},
 		{"sa_live_abcdef1234567890", "sa_live_abcd********7890"},
 		{"sa_live_ab", "sa_live_**"},
+		{"sa_sandbox_abcdef1234567890", "sa_sandbox_abcd********7890"},
+		{"sa_sandbox_ab", "sa_sandbox_**"},
 		{"short", "*****"},
 		{"abcdefghijklmnop", "abcd********mnop"},
 	}
@@ -272,8 +274,11 @@ func TestIsServiceAccountToken(t *testing.T) {
 	if !IsServiceAccountToken("sa_live_abc123") {
 		t.Error("expected true for sa_live_ prefix")
 	}
+	if !IsServiceAccountToken("sa_sandbox_abc123") {
+		t.Error("expected true for sa_sandbox_ prefix")
+	}
 	if IsServiceAccountToken("not_a_token") {
-		t.Error("expected false for non-sa_live_ prefix")
+		t.Error("expected false for non-service-account prefix")
 	}
 	if IsServiceAccountToken("") {
 		t.Error("expected false for empty string")

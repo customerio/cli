@@ -18,14 +18,22 @@ const (
 	configFileMode = 0600
 	configDirMode  = 0700
 
-	// ServiceAccountTokenPrefix is the prefix for long-lived service account credentials.
+	// ServiceAccountTokenPrefix is the prefix for production service account credentials.
 	// These must be exchanged for a short-lived JWT via the OAuth token endpoint.
 	ServiceAccountTokenPrefix = "sa_live_"
+	// SandboxServiceAccountTokenPrefix is the prefix for sandbox service account credentials.
+	// Sandbox accounts use this token until go-live replaces it with production credentials.
+	SandboxServiceAccountTokenPrefix = "sa_sandbox_"
 )
+
+var serviceAccountTokenPrefixes = []string{
+	ServiceAccountTokenPrefix,
+	SandboxServiceAccountTokenPrefix,
+}
 
 // Credentials holds the stored authentication credentials.
 type Credentials struct {
-	// ServiceAccountToken is the long-lived sa_live_ credential.
+	// ServiceAccountToken is the long-lived service account credential.
 	ServiceAccountToken string `json:"service_account_token"`
 	// AccountID is the account ID discovered during login.
 	AccountID string `json:"account_id,omitempty"`
@@ -382,16 +390,18 @@ func configFilePath() (string, error) {
 }
 
 // MaskToken returns a masked version of the token for display.
-// Shows the prefix + first 4 hex chars and last 4 chars, masking the middle.
+// Shows the service-account prefix + first 4 chars and last 4 chars, masking the middle.
 func MaskToken(token string) string {
 	token = strings.TrimSpace(token)
-	if strings.HasPrefix(token, ServiceAccountTokenPrefix) {
-		// Show "sa_live_xxxx****xxxx"
-		rest := token[len(ServiceAccountTokenPrefix):]
-		if len(rest) <= 8 {
-			return ServiceAccountTokenPrefix + strings.Repeat("*", len(rest))
+	for _, prefix := range serviceAccountTokenPrefixes {
+		if !strings.HasPrefix(token, prefix) {
+			continue
 		}
-		return ServiceAccountTokenPrefix + rest[:4] + strings.Repeat("*", len(rest)-8) + rest[len(rest)-4:]
+		rest := token[len(prefix):]
+		if len(rest) <= 8 {
+			return prefix + strings.Repeat("*", len(rest))
+		}
+		return prefix + rest[:4] + strings.Repeat("*", len(rest)-8) + rest[len(rest)-4:]
 	}
 	if len(token) <= 8 {
 		return strings.Repeat("*", len(token))
@@ -399,7 +409,12 @@ func MaskToken(token string) string {
 	return token[:4] + strings.Repeat("*", len(token)-8) + token[len(token)-4:]
 }
 
-// IsServiceAccountToken returns true if the token has the sa_live_ prefix.
+// IsServiceAccountToken returns true if the token has a supported service-account prefix.
 func IsServiceAccountToken(token string) bool {
-	return strings.HasPrefix(token, ServiceAccountTokenPrefix)
+	for _, prefix := range serviceAccountTokenPrefixes {
+		if strings.HasPrefix(token, prefix) {
+			return true
+		}
+	}
+	return false
 }
