@@ -160,6 +160,11 @@ func init() {
 		}
 		cmd.SetContext(contextWithClient(ctx, c))
 
+		// Automatic sandbox→live self-heal: if we're on a sandbox token and the
+		// account has gone live, promote it transparently before the command
+		// runs. Best-effort and throttled; never blocks the command.
+		maybePromoteSandboxToken(ctx, c, saToken, readOnly)
+
 		return nil
 	}
 }

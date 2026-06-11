@@ -27,12 +27,18 @@ import (
 //   - X-CIO-Agent: 1 — set only when the CIO_AGENT env var is "1". The
 //     sandbox that runs the CLI on behalf of an AI agent sets this so
 //     downstream metrics can attribute traffic to the agent.
+//   - X-CIO-Source — identifies the originating tool for server-side analytics
+//     (e.g. the "Design Studio: Email Created" source). "AI Assistant" when run
+//     by the agent sandbox (CIO_AGENT=1), otherwise "CLI".
 //   - X-CIO-Capability-Grant — forwarded from $X_CIO_CAPABILITY_GRANT so the env carries a session-scoped grant without a CLI flag.
 func setStandardHeaders(req *http.Request) {
 	req.Header.Set("User-Agent", useragent.Get())
 	req.Header.Set("X-Validate", "strict")
 	if os.Getenv("CIO_AGENT") == "1" {
 		req.Header.Set("X-CIO-Agent", "1")
+		req.Header.Set("X-CIO-Source", "AI Assistant")
+	} else {
+		req.Header.Set("X-CIO-Source", "CLI")
 	}
 	if grant := os.Getenv("X_CIO_CAPABILITY_GRANT"); grant != "" {
 		req.Header.Set("X-CIO-Capability-Grant", grant)
@@ -572,6 +578,14 @@ func (e *NonJSONResponseError) Error() string {
 // ServiceAccountToken returns the configured sa_live_ token (for status display).
 func (c *Client) ServiceAccountToken() string {
 	return c.serviceAccountToken
+}
+
+// SetServiceAccountToken replaces the in-memory service account credential and
+// clears any cached access token, so the next request re-authenticates with the
+// new token. Used by the sandbox→live self-heal after promoting the token.
+func (c *Client) SetServiceAccountToken(token string) {
+	c.serviceAccountToken = token
+	c.clearAccessToken()
 }
 
 // AccessToken returns the current JWT access token.

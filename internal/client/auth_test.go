@@ -285,6 +285,18 @@ func TestIsServiceAccountToken(t *testing.T) {
 	}
 }
 
+func TestIsSandboxServiceAccountToken(t *testing.T) {
+	if !IsSandboxServiceAccountToken("sa_sandbox_abc123") {
+		t.Error("expected true for sa_sandbox_ prefix")
+	}
+	if IsSandboxServiceAccountToken("sa_live_abc123") {
+		t.Error("expected false for sa_live_ prefix")
+	}
+	if IsSandboxServiceAccountToken("") {
+		t.Error("expected false for empty string")
+	}
+}
+
 func TestBaseURLForRegion(t *testing.T) {
 	tests := []struct {
 		region   string

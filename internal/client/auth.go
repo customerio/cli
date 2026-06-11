@@ -47,6 +47,10 @@ type Credentials struct {
 	ReadOnly bool `json:"read_only,omitempty"`
 	// Scopes holds additional OAuth scope values that were requested.
 	Scopes []string `json:"scopes,omitempty"`
+	// SandboxPromoteCheckedAt throttles the automatic sandbox→live promotion so
+	// the CLI does not probe the promote endpoint on every command while the
+	// account is still in sandbox.
+	SandboxPromoteCheckedAt time.Time `json:"sandbox_promote_checked_at,omitempty"`
 }
 
 // ScopeReadOnly is the OAuth 2.0 scope value that requests a read-only session.
@@ -417,4 +421,11 @@ func IsServiceAccountToken(token string) bool {
 		}
 	}
 	return false
+}
+
+// IsSandboxServiceAccountToken reports whether the token is a Builder sandbox
+// token (sa_sandbox_), which the CLI promotes to a live token once the account
+// has gone live.
+func IsSandboxServiceAccountToken(token string) bool {
+	return strings.HasPrefix(token, SandboxServiceAccountTokenPrefix)
 }
