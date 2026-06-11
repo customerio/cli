@@ -754,15 +754,16 @@ func TestDoTrack_StandardHeaders(t *testing.T) {
 
 func TestClient_Do_AgentHeader(t *testing.T) {
 	cases := []struct {
-		name     string
-		envValue string
-		envSet   bool
-		want     string // expected X-CIO-Agent header value on the request
+		name       string
+		envValue   string
+		envSet     bool
+		want       string // expected X-CIO-Agent header value on the request
+		wantSource string // expected X-CIO-Source header value on the request
 	}{
-		{"env unset", "", false, ""},
-		{"env empty", "", true, ""},
-		{"env 1", "1", true, "1"},
-		{"env other value", "true", true, ""},
+		{"env unset", "", false, "", "CLI"},
+		{"env empty", "", true, "", "CLI"},
+		{"env 1", "1", true, "1", "AI Assistant"},
+		{"env other value", "true", true, "", "CLI"},
 	}
 
 	for _, tc := range cases {
@@ -775,9 +776,10 @@ func TestClient_Do_AgentHeader(t *testing.T) {
 				_ = os.Unsetenv("CIO_AGENT")
 			}
 
-			var got string
+			var got, gotSource string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				got = r.Header.Get("X-CIO-Agent")
+				gotSource = r.Header.Get("X-CIO-Source")
 				_, _ = w.Write([]byte(`{"ok":true}`))
 			}))
 			defer server.Close()
@@ -792,6 +794,9 @@ func TestClient_Do_AgentHeader(t *testing.T) {
 			}
 			if got != tc.want {
 				t.Errorf("X-CIO-Agent: got %q, want %q", got, tc.want)
+			}
+			if gotSource != tc.wantSource {
+				t.Errorf("X-CIO-Source: got %q, want %q", gotSource, tc.wantSource)
 			}
 		})
 	}
