@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 const { execFileSync } = require("child_process");
-const { normalizeVersion } = require("./release-version");
+const fs = require("fs");
+const { normalizeVersion, bumpVersion } = require("./release-version");
 
 function fail(message) {
   throw new Error(message);
@@ -67,6 +68,44 @@ function read(command, args) {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   }).trim();
+}
+
+function latestTag() {
+  try {
+    run("git", ["fetch", "--tags", "--force", "origin"], { stdio: "ignore" });
+  } catch (err) {
+    // Tags may already be present from a full-depth checkout; fall back to local.
+  }
+
+  const tags = read("git", ["tag", "--list", "v*.*.*"])
+    .split("\n")
+    .map((tag) => tag.trim())
+    .filter((tag) => /^v\d+\.\d+\.\d+$/.test(tag));
+
+  if (!tags.length) {
+    return null;
+  }
+
+  return tags
+    .sort((a, b) => {
+      const pa = a.slice(1).split(".").map(Number);
+      const pb = b.slice(1).split(".").map(Number);
+      return pa[0] - pb[0] || pa[1] - pb[1] || pa[2] - pb[2];
+    })
+    .pop();
+}
+
+function resolveVersion(env = process.env) {
+  const input = String(env.VERSION_INPUT || "").trim();
+  const resolved = input
+    ? normalizeVersion(input)
+    : normalizeVersion(bumpVersion((latestTag() || "v0.0.0").slice(1), env.BUMP || "patch"));
+
+  if (env.GITHUB_OUTPUT) {
+    fs.appendFileSync(env.GITHUB_OUTPUT, `version=${resolved.npmVersion}\n`);
+  }
+  console.log(`Resolved release version: ${resolved.tag}`);
+  return resolved;
 }
 
 function assertCheckoutSha(ctx) {
@@ -217,12 +256,15 @@ function assertExistingRelease(env = process.env) {
 function main(argv = process.argv.slice(2)) {
   const command = argv[0];
   if (!command || argv.length !== 1) {
-    fail("usage: release-workflow.js <validate-dispatch|assert-dispatch-checkout|tag-and-dispatch|assert-tag-run|assert-existing-release>");
+    fail("usage: release-workflow.js <validate-dispatch|resolve-version|assert-dispatch-checkout|tag-and-dispatch|assert-tag-run|assert-existing-release>");
   }
 
   switch (command) {
     case "validate-dispatch":
       validateDispatch();
+      break;
+    case "resolve-version":
+      resolveVersion();
       break;
     case "assert-dispatch-checkout":
       assertDispatchCheckout();
@@ -253,4 +295,6 @@ if (require.main === module) {
 module.exports = {
   releaseContext,
   validateDispatch,
+  latestTag,
+  resolveVersion,
 };
