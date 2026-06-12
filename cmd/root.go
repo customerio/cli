@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -63,7 +64,7 @@ func init() {
 
 	flags := rootCmd.PersistentFlags()
 
-	flags.String("json", "", "Raw JSON request body or @filename to read from file")
+	flags.String("json", "", "Raw JSON request body, @filename to read from a file, or - to read from stdin")
 	flags.String("params", "", "Query parameters as JSON, converted to query string for GET")
 	flags.String("jq", "", "jq expression filter (via gojq)")
 	flags.Bool("dry-run", false, "Validate and print request, don't execute")
@@ -100,7 +101,7 @@ func init() {
 		// Resolve and validate --json if provided.
 		jsonFlag, _ := cmd.Flags().GetString("json")
 		if jsonFlag != "" {
-			resolved, err := resolveJSONFlag(jsonFlag)
+			resolved, err := resolveJSONFlag(jsonFlag, cmd.InOrStdin())
 			if err != nil {
 				output.PrintError(output.CodeValidationError, err.Error(), map[string]string{
 					"flag": "--json",
@@ -240,8 +241,16 @@ func SetVersion(v string) {
 	}
 }
 
-// resolveJSONFlag reads the file if value starts with "@", otherwise returns as-is.
-func resolveJSONFlag(value string) (string, error) {
+// resolveJSONFlag reads stdin if value is exactly "-", a file if it starts with
+// "@", otherwise returns the value as-is.
+func resolveJSONFlag(value string, stdin io.Reader) (string, error) {
+	if value == "-" {
+		data, err := io.ReadAll(stdin)
+		if err != nil {
+			return "", fmt.Errorf("--json -: %w", err)
+		}
+		return string(data), nil
+	}
 	if !strings.HasPrefix(value, "@") {
 		return value, nil
 	}

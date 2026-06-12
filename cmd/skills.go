@@ -77,6 +77,9 @@ func loadSkills(cmd *cobra.Command) (*skills.SkillsResponse, error) {
 		output.PrintError(output.CodeGeneralError, fmt.Sprintf("failed to load skills: %v", err), nil)
 		return nil, err
 	}
+	for _, notice := range resp.Notices {
+		fmt.Fprintln(cmd.ErrOrStderr(), "cio: "+notice)
+	}
 	return resp, nil
 }
 
@@ -86,18 +89,26 @@ func runSkillsList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	type fileSummary struct {
+		Name        string `json:"name"`
+		Description string `json:"description,omitempty"`
+	}
+
 	type skillSummary struct {
-		Path        string   `json:"path"`
-		Name        string   `json:"name"`
-		Description string   `json:"description"`
-		Files       []string `json:"files,omitempty"`
+		Path        string        `json:"path"`
+		Name        string        `json:"name"`
+		Description string        `json:"description"`
+		Files       []fileSummary `json:"files,omitempty"`
 	}
 
 	var result []skillSummary
 	for _, s := range resp.Skills {
-		files := make([]string, 0, len(s.Files))
-		for f := range s.Files {
-			files = append(files, f)
+		files := make([]fileSummary, 0, len(s.Files))
+		for _, name := range s.SortedFiles() {
+			files = append(files, fileSummary{
+				Name:        name,
+				Description: skills.FrontmatterDescription(s.Files[name]),
+			})
 		}
 		result = append(result, skillSummary{
 			Path:        s.Path,
@@ -127,11 +138,13 @@ func runSkillsRead(cmd *cobra.Command, args []string) error {
 		}
 
 		if subFile == "" {
-			// Return the main SKILL.md content.
+			// Return the skill's routing index: authored SKILL.md content if
+			// present, otherwise an index synthesized from the sub-files'
+			// frontmatter descriptions.
 			return skillsOutput(cmd, map[string]any{
 				"path":    s.Path,
 				"name":    s.Name,
-				"content": s.Content,
+				"content": s.Index(),
 			})
 		}
 

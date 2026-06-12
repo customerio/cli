@@ -711,6 +711,57 @@ func TestAPI_JSONFromFile_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestAPI_JSONFromStdin_DryRun(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	body := `{"campaign":{"name":"Test"}}`
+	rootCmd.SetIn(strings.NewReader(body))
+	t.Cleanup(func() { rootCmd.SetIn(nil) })
+
+	stdout, _, err := executeCommand("api", "/v1/environments/{environment_id}/campaigns",
+		"--api-url", server.URL,
+		"--params", `{"environment_id": "456"}`,
+		"--json", "-", "--dry-run")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\nstdout: %s", err, stdout)
+	}
+	if result["dry_run"] != true {
+		t.Error("expected dry_run=true")
+	}
+	got, err := json.Marshal(result["body"])
+	if err != nil {
+		t.Fatalf("re-marshal body: %v", err)
+	}
+	if string(got) != body {
+		t.Errorf("body = %s, want %s", got, body)
+	}
+}
+
+func TestAPI_JSONFromStdin_Empty(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	rootCmd.SetIn(strings.NewReader(""))
+	t.Cleanup(func() { rootCmd.SetIn(nil) })
+
+	_, _, err := executeCommand("api", "/v1/environments/{environment_id}/campaigns",
+		"--api-url", server.URL,
+		"--params", `{"environment_id": "456"}`,
+		"--json", "-")
+	if err == nil {
+		t.Fatal("expected error for empty stdin")
+	}
+	if !strings.Contains(err.Error(), "must not be empty") {
+		t.Errorf("expected 'must not be empty' error, got: %v", err)
+	}
+}
+
 func TestAPI_JSONFromFile_EmptyFilename(t *testing.T) {
 	server, cleanup := setupAPITest(t)
 	defer cleanup()
