@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 const assert = require("assert");
-const { normalizeVersion } = require("./release-version");
-const { validateDispatch } = require("./release-workflow");
+const { normalizeVersion, bumpVersion } = require("./release-version");
+const { validateDispatch, resolveVersion } = require("./release-workflow");
 
 function env(overrides) {
   return {
@@ -83,5 +83,23 @@ assert.throws(
   () => validateDispatch(env({ RESUME_EXISTING_NPM: "true", GITHUB_REF: "refs/heads/main" })),
   /recovery must be dispatched/
 );
+
+// bumpVersion: level handling and v-prefix tolerance
+assert.strictEqual(bumpVersion("0.0.11", "patch"), "0.0.12");
+assert.strictEqual(bumpVersion("v0.0.11", "patch"), "0.0.12");
+assert.strictEqual(bumpVersion("1.2.3", "minor"), "1.3.0");
+assert.strictEqual(bumpVersion("1.2.3", "major"), "2.0.0");
+assert.strictEqual(bumpVersion("1.2.3"), "1.2.4"); // default patch
+for (const bad of ["1.2", "v1", "1.2.3-beta.1", ""]) {
+  assert.throws(() => bumpVersion(bad, "patch"), /base version must use/);
+}
+assert.throws(() => bumpVersion("1.2.3", "huge"), /bump must be patch/);
+
+// resolveVersion: explicit input is an override (no git access needed)
+assert.deepStrictEqual(resolveVersion({ VERSION_INPUT: "v1.2.3" }), {
+  npmVersion: "1.2.3",
+  tag: "v1.2.3",
+  tagRef: "refs/tags/v1.2.3",
+});
 
 console.log("release-workflow tests passed");
