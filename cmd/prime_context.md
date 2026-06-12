@@ -74,7 +74,7 @@ cio skills read design-studio/nodes.md  # node creation, component markup
 | Flag | Description |
 |------|-------------|
 | `--params <json>` | Path + query parameters as JSON object |
-| `--json <payload>` | JSON request body or `@filename` to read from file |
+| `--json <payload>` | JSON request body, `@filename` to read from a file, or `-` to read from stdin |
 | `--jq <expr>` | Filter output with jq expressions (via gojq) |
 | `-X, --method` | HTTP method override (default: GET, or POST if `--json` is provided) |
 | `--dry-run` | Validate and print the request without executing |
@@ -116,6 +116,11 @@ cio api /v1/environments/{environment_id}/campaigns \
 cio api /v1/environments/{environment_id}/segments \
   --params '{"environment_id": "1"}' \
   --page-all --jq '{id, name}'
+
+# Pipe the body in via stdin (avoids shell-quoting a large payload)
+echo "$BODY" | cio api /v1/environments/{environment_id}/campaigns \
+  --params '{"environment_id": "1"}' \
+  --json -
 ```
 
 ## Filtering Large Responses

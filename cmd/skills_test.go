@@ -31,6 +31,18 @@ func testSkillsServer(t *testing.T) *httptest.Server {
 				Content:     "# Liquid\n\nLiquid content.",
 				Files:       map[string]string{},
 			},
+			{
+				// Entrypoint-less skill: empty Content, routing index is
+				// synthesized client-side from each sub-file's frontmatter.
+				Path:        "cli",
+				Name:        "Customer.io CLI Onboarding",
+				Description: "Builder onboarding.",
+				Content:     "",
+				Files: map[string]string{
+					"onboarding.md": "---\nname: onboarding\ndescription: Builder onboarding entry point.\n---\n\n# Onboarding\n",
+					"auth.md":       "---\nname: auth\ndescription: cio CLI authentication reference.\n---\n\n# Auth\n",
+				},
+			},
 		},
 	}
 	data, err := json.Marshal(resp)
@@ -86,11 +98,82 @@ func TestSkillsList(t *testing.T) {
 		t.Fatalf("invalid JSON: %v\noutput: %s", err, out)
 	}
 
-	if len(result) != 2 {
-		t.Fatalf("expected 2 skills, got %d", len(result))
+	if len(result) != 3 {
+		t.Fatalf("expected 3 skills, got %d", len(result))
 	}
 	if result[0]["path"] != "fly-api" {
 		t.Errorf("expected first skill path 'fly-api', got %v", result[0]["path"])
+	}
+}
+
+func TestSkillsListIncludesFileDescriptions(t *testing.T) {
+	srv := testSkillsServer(t)
+	defer srv.Close()
+
+	out, err := runSkillsCommand(t, srv)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var result []struct {
+		Path  string `json:"path"`
+		Files []struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\noutput: %s", err, out)
+	}
+
+	var cli *struct {
+		Path  string `json:"path"`
+		Files []struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		} `json:"files"`
+	}
+	for i := range result {
+		if result[i].Path == "cli" {
+			cli = &result[i]
+		}
+	}
+	if cli == nil {
+		t.Fatal("expected cli skill in list")
+	}
+	// Files come back sorted, each carrying its frontmatter description.
+	if len(cli.Files) != 2 || cli.Files[0].Name != "auth.md" || cli.Files[1].Name != "onboarding.md" {
+		t.Fatalf("expected files sorted [auth.md onboarding.md], got %+v", cli.Files)
+	}
+	if cli.Files[1].Description != "Builder onboarding entry point." {
+		t.Errorf("expected onboarding.md description from frontmatter, got %q", cli.Files[1].Description)
+	}
+}
+
+func TestSkillsReadSynthesizesIndex(t *testing.T) {
+	srv := testSkillsServer(t)
+	defer srv.Close()
+
+	out, err := runSkillsCommand(t, srv, "read", "cli")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\noutput: %s", err, out)
+	}
+
+	content, _ := result["content"].(string)
+	for _, want := range []string{
+		"# Customer.io CLI Onboarding",
+		"cio skills read cli/<file>",
+		"- **auth.md** - cio CLI authentication reference.",
+		"- **onboarding.md** - Builder onboarding entry point.",
+	} {
+		if !bytes.Contains([]byte(content), []byte(want)) {
+			t.Errorf("synthesized index missing %q\ngot:\n%s", want, content)
+		}
 	}
 }
 

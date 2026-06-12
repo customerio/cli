@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/customerio/cli/internal/filelock"
@@ -36,10 +38,80 @@ type Skill struct {
 	Files       map[string]string `json:"files"`
 }
 
+// SortedFiles returns the skill's sub-file names in stable alphabetical order.
+func (s Skill) SortedFiles() []string {
+	names := make([]string, 0, len(s.Files))
+	for name := range s.Files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// Index returns the skill's routing index: its authored Content if present,
+// otherwise an index synthesized from each sub-file's frontmatter description.
+// A skill with no SKILL.md serves an empty Content, so the index is the single
+// source of routing truth built from the files themselves.
+func (s Skill) Index() string {
+	if s.Content != "" {
+		return s.Content
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "# %s\n\n%s\n\n", s.Name, s.Description)
+	fmt.Fprintf(&sb, "Read the file matching the task (`cio skills read %s/<file>`):\n\n", s.Path)
+	for _, name := range s.SortedFiles() {
+		desc := FrontmatterDescription(s.Files[name])
+		if desc == "" {
+			fmt.Fprintf(&sb, "- **%s**\n", name)
+			continue
+		}
+		fmt.Fprintf(&sb, "- **%s** - %s\n", name, desc)
+	}
+	return sb.String()
+}
+
+// FrontmatterDescription extracts the `description:` value from a file's YAML
+// frontmatter. Handles single-line values and folded (`>`) blocks, where the
+// value continues on indented lines. Returns "" when there is no frontmatter
+// or no description.
+func FrontmatterDescription(raw string) string {
+	const delim = "---\n"
+	if !strings.HasPrefix(raw, delim) {
+		return ""
+	}
+	rest := raw[len(delim):]
+	end := strings.Index(rest, "\n---")
+	if end < 0 {
+		return ""
+	}
+	lines := strings.Split(rest[:end], "\n")
+	for i, line := range lines {
+		val, ok := strings.CutPrefix(line, "description:")
+		if !ok {
+			continue
+		}
+		val = strings.TrimSpace(val)
+		if val != ">" && val != "" {
+			return val
+		}
+		// Folded block: join the following indented lines.
+		var parts []string
+		for _, cont := range lines[i+1:] {
+			if cont == "" || (cont[0] != ' ' && cont[0] != '\t') {
+				break
+			}
+			parts = append(parts, strings.TrimSpace(cont))
+		}
+		return strings.Join(parts, " ")
+	}
+	return ""
+}
+
 // SkillsResponse is the full response from GET /v1/agent/skills.
 type SkillsResponse struct {
-	Prompt string  `json:"prompt"`
-	Skills []Skill `json:"skills"`
+	Prompt  string   `json:"prompt"`
+	Skills  []Skill  `json:"skills"`
+	Notices []string `json:"notices,omitempty"`
 }
 
 // LoadOptions configures skills loading behavior.
@@ -60,6 +132,11 @@ type skillsMeta struct {
 	ETag      string    `json:"etag,omitempty"`
 	FetchedAt time.Time `json:"fetched_at"`
 	Size      int64     `json:"size"`
+	// UserAgent is the User-Agent the cached bundle was fetched with. The
+	// response varies by User-Agent (the server tailors content to the CLI
+	// version), so a different one — e.g. after a CLI upgrade — must not reuse
+	// this cache entry.
+	UserAgent string `json:"user_agent,omitempty"`
 }
 
 func (o *LoadOptions) resolveBaseURL() string {
@@ -134,7 +211,7 @@ func EnsureSkills(ctx context.Context, opts LoadOptions) (*SkillsResponse, error
 	ttl := opts.resolveTTL()
 	httpClient := opts.resolveHTTPClient()
 
-	data, err := ensureSkillsData(ctx, httpClient, cacheDir, baseURL, meta, ttl, opts.ForceRefresh)
+	data, err := ensureSkillsData(ctx, httpClient, cacheDir, baseURL, useragent.Get(), meta, ttl, opts.ForceRefresh)
 	if err != nil {
 		return nil, err
 	}
@@ -149,15 +226,17 @@ func EnsureSkills(ctx context.Context, opts LoadOptions) (*SkillsResponse, error
 func ensureSkillsData(
 	ctx context.Context,
 	httpClient *http.Client,
-	cacheDir, baseURL string,
+	cacheDir, baseURL, userAgent string,
 	meta *skillsMeta,
 	ttl time.Duration,
 	forceRefresh bool,
 ) ([]byte, error) {
 	cachedPath := filepath.Join(cacheDir, skillsCacheFile)
 
-	// Check if cache is fresh.
-	if !forceRefresh && meta.ETag != "" && time.Since(meta.FetchedAt) < ttl {
+	// Cache is fresh only when it was fetched with this User-Agent — the
+	// response varies by it, so a UA change (e.g. a CLI upgrade) is a miss.
+	sameUA := meta.UserAgent == userAgent
+	if !forceRefresh && meta.ETag != "" && sameUA && time.Since(meta.FetchedAt) < ttl {
 		data, err := os.ReadFile(cachedPath)
 		if err == nil {
 			return data, nil
@@ -165,9 +244,16 @@ func ensureSkillsData(
 		// Cache file missing/corrupt — fall through to download.
 	}
 
-	// Download with conditional request.
+	// Conditional request, but only revalidate against the cached ETag when the
+	// cached entry is for this UA; a different UA must fetch its own variant
+	// rather than risk a 304 onto the wrong cached one.
+	conditionalETag := meta.ETag
+	if !sameUA {
+		conditionalETag = ""
+	}
+
 	url := baseURL + skillsEndpointPath
-	newData, newETag, dlErr := downloadSkills(ctx, httpClient, url, meta.ETag)
+	newData, newETag, dlErr := downloadSkills(ctx, httpClient, url, userAgent, conditionalETag)
 	if dlErr != nil {
 		// Try stale cache on download failure.
 		data, readErr := os.ReadFile(cachedPath)
@@ -181,6 +267,7 @@ func ensureSkillsData(
 	if newData == nil {
 		// 304 Not Modified — update timestamp, read from cache.
 		meta.FetchedAt = time.Now().UTC()
+		meta.UserAgent = userAgent
 		if err := writeMeta(cacheDir, meta); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to write skills cache metadata: %v\n", err)
 		}
@@ -199,6 +286,7 @@ func ensureSkillsData(
 	meta.ETag = newETag
 	meta.FetchedAt = time.Now().UTC()
 	meta.Size = int64(len(newData))
+	meta.UserAgent = userAgent
 	if err := writeMeta(cacheDir, meta); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: failed to write skills cache metadata: %v\n", err)
 	}
@@ -206,13 +294,13 @@ func ensureSkillsData(
 	return newData, nil
 }
 
-func downloadSkills(ctx context.Context, httpClient *http.Client, url, etag string) (data []byte, newETag string, err error) {
+func downloadSkills(ctx context.Context, httpClient *http.Client, url, userAgent, etag string) (data []byte, newETag string, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, "", err
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", useragent.Get())
+	req.Header.Set("User-Agent", userAgent)
 	if etag != "" {
 		req.Header.Set("If-None-Match", etag)
 	}
