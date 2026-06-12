@@ -1,0 +1,73 @@
+name: Auto-merge public export PR
+
+# Auto-merges the Copybara-generated public-export PR once CI passes, removing
+# the manual merge step from the release flow. Destination `main` still changes
+# only through this PR (the export contract is preserved) — a human is just no
+# longer required to click merge.
+#
+# Triggers off a successful CI run on the export branch rather than a native
+# branch-protection auto-merge so it works regardless of repo protection
+# settings. Guarded to the export bot's PR on the export branch only.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    # Only when CI succeeded on the export branch, in this repo (not a fork).
+    if: >-
+      ${{
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'copybara/public-export' &&
+        github.event.workflow_run.head_repository.full_name == github.repository
+      }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge the export PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          # The exact commit CI validated. We refuse to merge anything newer.
+          VALIDATED_SHA: ${{ github.event.workflow_run.head_sha }}
+          # The automation identity that authors the export PR.
+          EXPORT_BOT: ami-ci
+          EXPORT_BRANCH: copybara/public-export
+        run: |
+          set -euo pipefail
+
+          pr_json="$(gh pr list \
+            --head "$EXPORT_BRANCH" --base main --state open \
+            --json number,author,headRefOid \
+            --jq '.[0] // empty')"
+
+          if [[ -z "$pr_json" ]]; then
+            echo "No open ${EXPORT_BRANCH} PR found; nothing to merge."
+            exit 0
+          fi
+
+          number="$(jq -r '.number' <<<"$pr_json")"
+          author="$(jq -r '.author.login' <<<"$pr_json")"
+          head="$(jq -r '.headRefOid' <<<"$pr_json")"
+
+          if [[ "$author" != "$EXPORT_BOT" ]]; then
+            echo "PR #${number} author is '${author}', not the export bot; skipping."
+            exit 0
+          fi
+
+          if [[ "$head" != "$VALIDATED_SHA" ]]; then
+            echo "PR #${number} head ${head} no longer matches CI-validated ${VALIDATED_SHA}; skipping."
+            exit 0
+          fi
+
+          # Merge commit (not squash) so the original Copybara commit — and its
+          # CioCliPublicExport-RevId trailer used for last-rev tracking — stays
+          # in main's history.
+          echo "Merging export PR #${number} (${head})."
+          gh pr merge "$number" --merge
