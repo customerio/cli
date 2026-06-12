@@ -66,8 +66,9 @@ jobs:
             exit 0
           fi
 
-          # Merge commit (not squash) so the original Copybara commit — and its
-          # CioCliPublicExport-RevId trailer used for last-rev tracking — stays
-          # in main's history.
+          # Rebase merge: main's ruleset enforces linear history and allows the
+          # rebase method only. The CioCliPublicExport-RevId trailer is carried
+          # in the commit message and survives the rebase, so Copybara last-rev
+          # tracking is unaffected — every prior export landed on main this way.
           echo "Merging export PR #${number} (${head})."
-          gh pr merge "$number" --merge
+          gh pr merge "$number" --rebase
