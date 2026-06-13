@@ -389,3 +389,57 @@ func TestEnsureSkills_UserAgentChangeInvalidatesCache(t *testing.T) {
 		t.Fatalf("expected cache hit for same UA, got %d requests", requestCount)
 	}
 }
+
+func TestEnsureSkills_AccountScopeChangeInvalidatesCache(t *testing.T) {
+	requestCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		// Vary the body by the caller, like the real (plan-scoped) server.
+		body, _ := json.Marshal(&SkillsResponse{Prompt: "auth=" + r.Header.Get("Authorization")})
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("ETag", ComputeETag(body))
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	base := LoadOptions{
+		BaseURL:  srv.URL,
+		CacheDir: t.TempDir(),
+		TTL:      time.Hour, // long: only a scope change should force a refetch
+	}
+
+	// Account A.
+	optsA := base
+	optsA.AccessToken = "jwt-a"
+	optsA.CacheScope = "acct-a"
+	got, err := EnsureSkills(context.Background(), optsA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Prompt != "auth=Bearer jwt-a" || requestCount != 1 {
+		t.Fatalf("A: prompt=%q requests=%d", got.Prompt, requestCount)
+	}
+
+	// Account B within TTL must refetch — a scoped bundle is not shared.
+	optsB := base
+	optsB.AccessToken = "jwt-b"
+	optsB.CacheScope = "acct-b"
+	got, err = EnsureSkills(context.Background(), optsB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Prompt != "auth=Bearer jwt-b" {
+		t.Fatalf("B: expected refetched variant, got prompt=%q", got.Prompt)
+	}
+	if requestCount != 2 {
+		t.Fatalf("B: expected a refetch on account change, got %d requests", requestCount)
+	}
+
+	// Account A again within TTL: same scope, cache hit, no new request.
+	if _, err = EnsureSkills(context.Background(), optsB); err != nil {
+		t.Fatal(err)
+	}
+	if requestCount != 2 {
+		t.Fatalf("expected cache hit for same scope, got %d requests", requestCount)
+	}
+}

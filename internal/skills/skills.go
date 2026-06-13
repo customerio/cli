@@ -39,6 +39,9 @@ type Skill struct {
 }
 
 // SortedFiles returns the skill's sub-file names in stable alphabetical order.
+// Plan scoping is resolved server-side: out-of-scope files are already omitted
+// from Files (GET /v1/agent/skills), so the CLI lists and reads whatever it
+// receives.
 func (s Skill) SortedFiles() []string {
 	names := make([]string, 0, len(s.Files))
 	for name := range s.Files {
@@ -126,6 +129,15 @@ type LoadOptions struct {
 	TTL time.Duration
 	// HTTPClient overrides the HTTP client (for testing).
 	HTTPClient *http.Client
+	// AccessToken, when set, is sent as a Bearer token so the server scopes the
+	// bundle to the account's plan (out-of-scope files flagged). Empty fetches
+	// the full, unscoped bundle.
+	AccessToken string
+	// CacheScope identifies the account the cache entry belongs to (e.g. the
+	// account ID), so a scoped bundle is never reused across accounts. Empty for
+	// an unauthenticated fetch. The token itself is unsuitable as a key — the
+	// access token rotates, the scope is stable per account.
+	CacheScope string
 }
 
 type skillsMeta struct {
@@ -137,6 +149,11 @@ type skillsMeta struct {
 	// version), so a different one — e.g. after a CLI upgrade — must not reuse
 	// this cache entry.
 	UserAgent string `json:"user_agent,omitempty"`
+	// Scope is the account scope the cached bundle was fetched for (see
+	// LoadOptions.CacheScope). The response is plan-scoped to the caller, so a
+	// bundle fetched for one account — or anonymously ("") — must not be reused
+	// for another.
+	Scope string `json:"scope,omitempty"`
 }
 
 func (o *LoadOptions) resolveBaseURL() string {
@@ -211,7 +228,7 @@ func EnsureSkills(ctx context.Context, opts LoadOptions) (*SkillsResponse, error
 	ttl := opts.resolveTTL()
 	httpClient := opts.resolveHTTPClient()
 
-	data, err := ensureSkillsData(ctx, httpClient, cacheDir, baseURL, useragent.Get(), meta, ttl, opts.ForceRefresh)
+	data, err := ensureSkillsData(ctx, httpClient, cacheDir, baseURL, useragent.Get(), opts.AccessToken, opts.CacheScope, meta, ttl, opts.ForceRefresh)
 	if err != nil {
 		return nil, err
 	}
@@ -226,17 +243,18 @@ func EnsureSkills(ctx context.Context, opts LoadOptions) (*SkillsResponse, error
 func ensureSkillsData(
 	ctx context.Context,
 	httpClient *http.Client,
-	cacheDir, baseURL, userAgent string,
+	cacheDir, baseURL, userAgent, accessToken, scope string,
 	meta *skillsMeta,
 	ttl time.Duration,
 	forceRefresh bool,
 ) ([]byte, error) {
 	cachedPath := filepath.Join(cacheDir, skillsCacheFile)
 
-	// Cache is fresh only when it was fetched with this User-Agent — the
-	// response varies by it, so a UA change (e.g. a CLI upgrade) is a miss.
-	sameUA := meta.UserAgent == userAgent
-	if !forceRefresh && meta.ETag != "" && sameUA && time.Since(meta.FetchedAt) < ttl {
+	// Cache is fresh only when it was fetched with this User-Agent and account
+	// scope — the response varies by both, so a UA change (e.g. a CLI upgrade)
+	// or an account switch is a miss.
+	sameVariant := meta.UserAgent == userAgent && meta.Scope == scope
+	if !forceRefresh && meta.ETag != "" && sameVariant && time.Since(meta.FetchedAt) < ttl {
 		data, err := os.ReadFile(cachedPath)
 		if err == nil {
 			return data, nil
@@ -245,21 +263,24 @@ func ensureSkillsData(
 	}
 
 	// Conditional request, but only revalidate against the cached ETag when the
-	// cached entry is for this UA; a different UA must fetch its own variant
-	// rather than risk a 304 onto the wrong cached one.
+	// cached entry is for this UA and scope; a different variant must fetch its
+	// own rather than risk a 304 onto the wrong cached one.
 	conditionalETag := meta.ETag
-	if !sameUA {
+	if !sameVariant {
 		conditionalETag = ""
 	}
 
 	url := baseURL + skillsEndpointPath
-	newData, newETag, dlErr := downloadSkills(ctx, httpClient, url, userAgent, conditionalETag)
+	newData, newETag, dlErr := downloadSkills(ctx, httpClient, url, userAgent, accessToken, conditionalETag)
 	if dlErr != nil {
-		// Try stale cache on download failure.
-		data, readErr := os.ReadFile(cachedPath)
-		if readErr == nil {
-			fmt.Fprintf(os.Stderr, "warning: using stale cached skills (download failed: %v)\n", dlErr)
-			return data, nil
+		// Try stale cache on download failure, but only when it's this variant —
+		// serving another account's scoped bundle would be wrong.
+		if sameVariant {
+			data, readErr := os.ReadFile(cachedPath)
+			if readErr == nil {
+				fmt.Fprintf(os.Stderr, "warning: using stale cached skills (download failed: %v)\n", dlErr)
+				return data, nil
+			}
 		}
 		return nil, dlErr
 	}
@@ -268,6 +289,7 @@ func ensureSkillsData(
 		// 304 Not Modified — update timestamp, read from cache.
 		meta.FetchedAt = time.Now().UTC()
 		meta.UserAgent = userAgent
+		meta.Scope = scope
 		if err := writeMeta(cacheDir, meta); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to write skills cache metadata: %v\n", err)
 		}
@@ -287,6 +309,7 @@ func ensureSkillsData(
 	meta.FetchedAt = time.Now().UTC()
 	meta.Size = int64(len(newData))
 	meta.UserAgent = userAgent
+	meta.Scope = scope
 	if err := writeMeta(cacheDir, meta); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: failed to write skills cache metadata: %v\n", err)
 	}
@@ -294,13 +317,18 @@ func ensureSkillsData(
 	return newData, nil
 }
 
-func downloadSkills(ctx context.Context, httpClient *http.Client, url, userAgent, etag string) (data []byte, newETag string, err error) {
+func downloadSkills(ctx context.Context, httpClient *http.Client, url, userAgent, accessToken, etag string) (data []byte, newETag string, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, "", err
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", userAgent)
+	// Authenticated fetches get a bundle scoped to the account's plan; the
+	// endpoint also serves unauthenticated callers (the full, unscoped bundle).
+	if accessToken != "" {
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+	}
 	if etag != "" {
 		req.Header.Set("If-None-Match", etag)
 	}
