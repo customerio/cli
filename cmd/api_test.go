@@ -59,69 +59,6 @@ func setupAPITest(t *testing.T) (*httptest.Server, func()) {
 	return server, func() { server.Close() }
 }
 
-// schemaSpec is a minimal Journeys OpenAPI fixture for schema tests. It must
-// include a campaigns resource so the schema assertions (campaigns.list -> GET)
-// resolve without reaching the live API.
-func schemaSpec() string {
-	return `{
-		"openapi": "3.1.0",
-		"info": {"title": "Test", "version": "1.0.0"},
-		"paths": {
-			"/v1/environments/{environment_id}/campaigns": {
-				"get": {
-					"summary": "List campaigns",
-					"parameters": [
-						{"name": "environment_id", "in": "path", "required": true, "schema": {"type": "string"}}
-					]
-				}
-			}
-		}
-	}`
-}
-
-// schemaCDPSpec is the CDP companion fixture; LoadRegistry loads both the
-// Journeys and CDP specs, so both endpoints must respond.
-func schemaCDPSpec() string {
-	return `{
-		"openapi": "3.1.0",
-		"info": {"title": "CDP", "version": "1.0.0"},
-		"paths": {
-			"/cdp/api/workspaces/{workspace_id}/sources": {
-				"get": {
-					"summary": "List sources",
-					"parameters": [
-						{"name": "workspace_id", "in": "path", "required": true, "schema": {"type": "string"}}
-					]
-				}
-			}
-		}
-	}`
-}
-
-// setupSchemaTest points the route registry at a local spec server with an
-// isolated, empty cache (temp HOME) so `cio schema` tests never reach the live
-// API. Returns a cleanup func; call it with defer.
-func setupSchemaTest(t *testing.T) func() {
-	t.Helper()
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("CIO_TOKEN", "")
-	t.Setenv("CIO_ACCESS_TOKEN", "")
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/v1/openapi.json":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(schemaSpec()))
-		case "/cdp/api/openapi.json":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(schemaCDPSpec()))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	t.Setenv("CIO_API_URL", server.URL)
-	return server.Close
-}
-
 func TestAPI_GetCampaigns(t *testing.T) {
 	server, cleanup := setupAPITest(t)
 	defer cleanup()
@@ -610,7 +547,6 @@ func TestAPI_IgnoresStoredAccountIDWithAccessToken(t *testing.T) {
 }
 
 func TestSchema_ListResources(t *testing.T) {
-	defer setupSchemaTest(t)()
 	stdout, _, err := executeCommand("schema")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -631,7 +567,6 @@ func TestSchema_ListResources(t *testing.T) {
 }
 
 func TestSchema_ResourceMethods(t *testing.T) {
-	defer setupSchemaTest(t)()
 	stdout, _, err := executeCommand("schema", "campaigns")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -647,7 +582,6 @@ func TestSchema_ResourceMethods(t *testing.T) {
 }
 
 func TestSchema_ResourceMethod(t *testing.T) {
-	defer setupSchemaTest(t)()
 	stdout, _, err := executeCommand("schema", "campaigns.list")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -672,7 +606,6 @@ func TestSchema_ResourceMethod(t *testing.T) {
 }
 
 func TestSchema_UnknownMethod(t *testing.T) {
-	defer setupSchemaTest(t)()
 	_, _, err := executeCommand("schema", "campaigns.nonexistent")
 	if err == nil {
 		t.Fatal("expected error for unknown method")
@@ -680,7 +613,6 @@ func TestSchema_UnknownMethod(t *testing.T) {
 }
 
 func TestSchema_UnknownResource(t *testing.T) {
-	defer setupSchemaTest(t)()
 	_, _, err := executeCommand("schema", "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for unknown resource")
