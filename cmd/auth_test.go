@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/customerio/cli/internal/client"
+	"github.com/customerio/cli/internal/clipboard"
 )
 
 func executeCommand(args ...string) (stdout, stderr string, err error) {
@@ -36,6 +38,15 @@ func executeCommand(args ...string) (stdout, stderr string, err error) {
 	// Reset local flags on subcommands that persist across test runs.
 	if f := apiCmd.Flags().Lookup("method"); f != nil {
 		_ = apiCmd.Flags().Set("method", "")
+	}
+
+	// Reset auth login flags; Changed must clear too, or the
+	// mutually-exclusive-flags check sees stale state from earlier tests.
+	for _, name := range []string{"with-token", "from-clipboard", "wait"} {
+		if f := authLoginCmd.Flags().Lookup(name); f != nil {
+			_ = authLoginCmd.Flags().Set(name, "false")
+			f.Changed = false
+		}
 	}
 
 	// Reset send/transactional persistent flags.
@@ -954,5 +965,169 @@ func TestAuthSignupStart_DryRun(t *testing.T) {
 	}
 	if result["url"] != "https://example.invalid/v1/account_signup" {
 		t.Errorf("unexpected url: %v", result["url"])
+	}
+}
+
+func TestAuthLogin_FromClipboard_SavesToken(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("CIO_TOKEN", "")
+
+	orig := readClipboard
+	defer func() { readClipboard = orig }()
+	readClipboard = func(context.Context) (string, error) { return "sa_live_test123\n", nil }
+
+	server := oauthServer(t, "sa_live_test123")
+	defer server.Close()
+
+	stdout, _, err := executeCommand("auth", "login", "--from-clipboard", "--api-url", server.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\nstdout: %s", err, stdout)
+	}
+	if result["status"] != "ok" {
+		t.Errorf("expected status ok, got %v", result["status"])
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmpDir, ".cio", "config.json"))
+	if err != nil {
+		t.Fatalf("failed to read config file: %v", err)
+	}
+	var creds map[string]any
+	if err := json.Unmarshal(data, &creds); err != nil {
+		t.Fatalf("invalid JSON in config file: %v", err)
+	}
+	if creds["service_account_token"] != "sa_live_test123" {
+		t.Errorf("expected sa_live_test123, got %v", creds["service_account_token"])
+	}
+}
+
+func TestAuthLogin_FromClipboard_Empty(t *testing.T) {
+	orig := readClipboard
+	defer func() { readClipboard = orig }()
+	readClipboard = func(context.Context) (string, error) { return "  \n", nil }
+
+	_, _, err := executeCommand("auth", "login", "--from-clipboard")
+	if err == nil {
+		t.Fatal("expected error for empty clipboard")
+	}
+	if !strings.Contains(err.Error(), "clipboard is empty") {
+		t.Errorf("expected clipboard-empty error, got: %v", err)
+	}
+}
+
+func TestAuthLogin_FromClipboard_BadPrefixDoesNotEchoContents(t *testing.T) {
+	orig := readClipboard
+	defer func() { readClipboard = orig }()
+	readClipboard = func(context.Context) (string, error) { return "hunter2-something-sensitive", nil }
+
+	stdout, stderr, err := executeCommand("auth", "login", "--from-clipboard")
+	if err == nil {
+		t.Fatal("expected error for non-token clipboard contents")
+	}
+	for name, s := range map[string]string{"error": err.Error(), "stdout": stdout, "stderr": stderr} {
+		if strings.Contains(s, "hunter2") {
+			t.Errorf("clipboard contents leaked into %s: %s", name, s)
+		}
+	}
+}
+
+func TestAuthLogin_FromClipboard_NoTool(t *testing.T) {
+	orig := readClipboard
+	defer func() { readClipboard = orig }()
+	readClipboard = func(context.Context) (string, error) { return "", clipboard.ErrNoTool }
+
+	_, _, err := executeCommand("auth", "login", "--from-clipboard")
+	if err == nil {
+		t.Fatal("expected error when no clipboard tool is available")
+	}
+	if !strings.Contains(err.Error(), "could not read the clipboard") {
+		t.Errorf("expected clipboard-read error, got: %v", err)
+	}
+}
+
+func TestAuthLogin_FromClipboardAndWithTokenAreExclusive(t *testing.T) {
+	_, _, err := executeCommand("auth", "login", "--from-clipboard", "--with-token")
+	if err == nil {
+		t.Fatal("expected mutually-exclusive flag error")
+	}
+}
+
+func TestAuthLogin_FromClipboardWait_PicksUpTokenAfterPolling(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("CIO_TOKEN", "")
+
+	origRead, origInterval, origBudget := readClipboard, clipboardPollInterval, clipboardWaitBudget
+	defer func() {
+		readClipboard, clipboardPollInterval, clipboardWaitBudget = origRead, origInterval, origBudget
+	}()
+	clipboardPollInterval = time.Millisecond
+	clipboardWaitBudget = time.Second
+
+	// Clipboard holds unrelated content for the first few polls, then the token.
+	calls := 0
+	readClipboard = func(context.Context) (string, error) {
+		calls++
+		if calls < 3 {
+			return "https://fly.customer.io/cli", nil
+		}
+		return "sa_live_test123\n", nil
+	}
+
+	server := oauthServer(t, "sa_live_test123")
+	defer server.Close()
+
+	stdout, _, err := executeCommand("auth", "login", "--from-clipboard", "--wait", "--api-url", server.URL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if calls < 3 {
+		t.Errorf("expected at least 3 clipboard polls, got %d", calls)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\nstdout: %s", err, stdout)
+	}
+	if result["status"] != "ok" {
+		t.Errorf("expected status ok, got %v", result["status"])
+	}
+}
+
+func TestAuthLogin_FromClipboardWait_TimesOutWithoutEchoing(t *testing.T) {
+	origRead, origInterval, origBudget := readClipboard, clipboardPollInterval, clipboardWaitBudget
+	defer func() {
+		readClipboard, clipboardPollInterval, clipboardWaitBudget = origRead, origInterval, origBudget
+	}()
+	clipboardPollInterval = time.Millisecond
+	clipboardWaitBudget = 10 * time.Millisecond
+	readClipboard = func(context.Context) (string, error) { return "private-notes-not-a-token", nil }
+
+	stdout, stderr, err := executeCommand("auth", "login", "--from-clipboard", "--wait")
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !strings.Contains(err.Error(), "timed out waiting") {
+		t.Errorf("expected timeout error, got: %v", err)
+	}
+	for name, s := range map[string]string{"error": err.Error(), "stdout": stdout, "stderr": stderr} {
+		if strings.Contains(s, "private-notes") {
+			t.Errorf("clipboard contents leaked into %s: %s", name, s)
+		}
+	}
+}
+
+func TestAuthLogin_WaitRequiresFromClipboard(t *testing.T) {
+	_, _, err := executeCommand("auth", "login", "--wait")
+	if err == nil {
+		t.Fatal("expected error for --wait without --from-clipboard")
+	}
+	if !strings.Contains(err.Error(), "--wait requires --from-clipboard") {
+		t.Errorf("expected flag-dependency error, got: %v", err)
 	}
 }

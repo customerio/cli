@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/customerio/cli/internal/client"
+	"github.com/customerio/cli/internal/clipboard"
 	"github.com/customerio/cli/internal/output"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -22,6 +23,75 @@ var isTerminalInput = func(fd uintptr) bool {
 
 var readPasswordInput = func(fd uintptr) ([]byte, error) {
 	return term.ReadPassword(int(fd))
+}
+
+var readClipboard = clipboard.Read
+
+// Clipboard polling knobs; shrunk in tests. The wait budget stays under
+// typical agent tool-call timeouts (~2m) so a timed-out wait returns a clean
+// error the caller can react to instead of being killed mid-poll.
+var (
+	clipboardPollInterval = time.Second
+	clipboardWaitBudget   = 90 * time.Second
+)
+
+// clipboardToken reads a service-account token from the system clipboard.
+//
+// With wait=true it polls until a token-shaped value appears or the budget
+// runs out, so the command can be started before the user has copied the
+// token — no confirmation round-trip. While polling, non-token clipboard
+// contents are ignored; they are never echoed, stored, or sent anywhere.
+func clipboardToken(cmd *cobra.Command, wait bool) (string, error) {
+	if wait {
+		fmt.Fprintf(cmd.ErrOrStderr(), "Sign in and copy your token from:\n\n    %s\n\nWaiting for it on your clipboard (Ctrl-C cancels)...\n", resolveCLILoginURL())
+	}
+	deadline := time.Now().Add(clipboardWaitBudget)
+	for {
+		text, err := readClipboard(cmd.Context())
+		if err != nil {
+			err = fmt.Errorf("could not read the clipboard: %w", err)
+			output.PrintError(output.CodeGeneralError, err.Error(), map[string]any{
+				"hint": "Remote shells (SSH, containers) can't see your local clipboard. Run 'cio auth login' in your own terminal, or pipe the token: pbpaste | cio auth login --with-token",
+			})
+			return "", err
+		}
+		token := strings.TrimSpace(text)
+		if client.IsServiceAccountToken(token) {
+			return token, nil
+		}
+
+		if !wait {
+			if token == "" {
+				err := fmt.Errorf("clipboard is empty")
+				output.PrintError(output.CodeValidationError, err.Error(), map[string]any{
+					"hint": "Copy the token from the token page, then re-run. In a remote shell your local clipboard isn't visible — run 'cio auth login' in your own terminal instead.",
+				})
+				return "", err
+			}
+			// Unlike the generic token validation, don't echo any of the
+			// input — whatever is on the clipboard may be unrelated and
+			// sensitive.
+			err := fmt.Errorf("clipboard contents don't look like a service account token (expected a %q or %q prefix)",
+				client.ServiceAccountTokenPrefix, client.SandboxServiceAccountTokenPrefix)
+			output.PrintError(output.CodeValidationError, err.Error(), map[string]any{
+				"hint": "Copy the token last — it must be the most recent thing on your clipboard — then re-run.",
+			})
+			return "", err
+		}
+
+		if time.Now().After(deadline) {
+			err := fmt.Errorf("timed out waiting for a token on the clipboard")
+			output.PrintError(output.CodeValidationError, err.Error(), map[string]any{
+				"hint": "Copy the token from the token page and re-run. In a remote shell your local clipboard isn't visible — run 'cio auth login' in your own terminal instead.",
+			})
+			return "", err
+		}
+		select {
+		case <-cmd.Context().Done():
+			return "", cmd.Context().Err()
+		case <-time.After(clipboardPollInterval):
+		}
+	}
 }
 
 var authCmd = &cobra.Command{
@@ -51,12 +121,28 @@ your browser — no password needed.
 If this is your first time, you'll be guided to sign in at
 fly.customer.io and paste a token back into your terminal.
 
+After copying a token from the token page, you can read it straight from
+your clipboard without pasting:
+  $ cio auth login --from-clipboard
+
+Add --wait to start the command first and have it pick the token up the
+moment you copy it:
+  $ cio auth login --from-clipboard --wait
+
 For CI or non-interactive use:
   $ echo "$TOKEN" | cio auth login --with-token
   $ cio auth login <token>`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		withToken, _ := cmd.Flags().GetBool("with-token")
+		fromClipboard, _ := cmd.Flags().GetBool("from-clipboard")
+		waitForClipboard, _ := cmd.Flags().GetBool("wait")
+
+		if waitForClipboard && !fromClipboard {
+			err := fmt.Errorf("--wait requires --from-clipboard")
+			output.PrintError(output.CodeValidationError, err.Error(), nil)
+			return err
+		}
 
 		var (
 			token string
@@ -64,6 +150,11 @@ For CI or non-interactive use:
 		)
 
 		switch {
+		case fromClipboard:
+			token, err = clipboardToken(cmd, waitForClipboard)
+			if err != nil {
+				return err
+			}
 		case withToken:
 			scanner := bufio.NewScanner(os.Stdin)
 			if scanner.Scan() {
@@ -615,6 +706,9 @@ func resolveSignupBaseURL(cmd *cobra.Command) string {
 
 func init() {
 	authLoginCmd.Flags().Bool("with-token", false, "Read token from standard input")
+	authLoginCmd.Flags().Bool("from-clipboard", false, "Read token from the system clipboard")
+	authLoginCmd.Flags().Bool("wait", false, "With --from-clipboard: poll until a token appears on the clipboard")
+	authLoginCmd.MarkFlagsMutuallyExclusive("with-token", "from-clipboard")
 
 	authSignupCmd.AddCommand(authSignupStartCmd)
 	authSignupCmd.AddCommand(authSignupVerifyCmd)

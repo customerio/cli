@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -64,15 +66,20 @@ func init() {
 func loadSkills(cmd *cobra.Command) (*skills.SkillsResponse, error) {
 	refresh, _ := cmd.Flags().GetBool("refresh")
 
-	var baseURL string
+	opts := skills.LoadOptions{ForceRefresh: refresh}
+	// Best-effort authentication: when credentials are available, send a Bearer
+	// token so the server scopes the bundle to the account's plan, and key the
+	// cache by account so a scoped bundle is never reused across accounts. Any
+	// failure falls through to an unauthenticated fetch (the full bundle).
 	if c := clientFromCmd(cmd); c != nil {
-		baseURL = c.BaseURL()
+		opts.BaseURL = c.BaseURL()
+		if token, err := c.EnsureAccessToken(cmd.Context()); err == nil {
+			opts.AccessToken = token
+			opts.CacheScope = accountCacheScope(c.ServiceAccountToken())
+		}
 	}
 
-	resp, err := skills.EnsureSkills(cmd.Context(), skills.LoadOptions{
-		BaseURL:      baseURL,
-		ForceRefresh: refresh,
-	})
+	resp, err := skills.EnsureSkills(cmd.Context(), opts)
 	if err != nil {
 		output.PrintError(output.CodeGeneralError, fmt.Sprintf("failed to load skills: %v", err), nil)
 		return nil, err
@@ -81,6 +88,19 @@ func loadSkills(cmd *cobra.Command) (*skills.SkillsResponse, error) {
 		fmt.Fprintln(cmd.ErrOrStderr(), "cio: "+notice)
 	}
 	return resp, nil
+}
+
+// accountCacheScope derives a stable, non-reversible cache key from the active
+// service-account token, identifying the account a scoped skills bundle belongs
+// to. The access token rotates, so it can't key the cache; the service-account
+// token is stable per account. Returns "" when there is no token (the bundle is
+// then unscoped and shared).
+func accountCacheScope(serviceAccountToken string) string {
+	if serviceAccountToken == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(serviceAccountToken))
+	return hex.EncodeToString(sum[:8])
 }
 
 func runSkillsList(cmd *cobra.Command, args []string) error {
@@ -148,17 +168,14 @@ func runSkillsRead(cmd *cobra.Command, args []string) error {
 			})
 		}
 
-		// Look up the sub-file.
+		// Look up the sub-file. Files outside the account's plan were omitted
+		// server-side, so an out-of-scope file reads as an unknown file here.
 		content, ok := s.Files[subFile]
 		if !ok {
-			available := make([]string, 0, len(s.Files))
-			for f := range s.Files {
-				available = append(available, f)
-			}
 			err := fmt.Errorf("unknown file %q in skill %q", subFile, skillPath)
 			output.PrintError(output.CodeValidationError, err.Error(), map[string]any{
 				"skill":           skillPath,
-				"available_files": available,
+				"available_files": s.SortedFiles(),
 			})
 			return err
 		}
@@ -188,6 +205,8 @@ func runSkillsPrompt(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// The prompt already carries the account's plan when the bundle was fetched
+	// with credentials — the server appends it (scoping is resolved server-side).
 	return skillsOutput(cmd, map[string]string{
 		"prompt": resp.Prompt,
 	})

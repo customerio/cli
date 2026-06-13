@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -56,7 +57,7 @@ func init() {
 	defaultHelp := rootCmd.HelpFunc()
 	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		if cmd == rootCmd {
-			tui.RenderHelp(cmd.OutOrStdout())
+			tui.RenderHelp(cmd.OutOrStdout(), topLevelCommands(rootCmd))
 			return
 		}
 		defaultHelp(cmd, args)
@@ -168,6 +169,21 @@ func init() {
 
 		return nil
 	}
+}
+
+// topLevelCommands returns the live set of user-facing top-level commands for
+// the branded help screen, sorted by name. Cobra's built-in help and
+// completion commands are omitted, as are hidden/unavailable ones.
+func topLevelCommands(root *cobra.Command) []tui.Command {
+	var out []tui.Command
+	for _, c := range root.Commands() {
+		if !c.IsAvailableCommand() || c.Name() == "help" || c.Name() == "completion" {
+			continue
+		}
+		out = append(out, tui.Command{Name: c.Name(), Desc: c.Short})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 // isAuthCommand returns true for subcommands that don't need the UI API client.

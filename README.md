@@ -37,7 +37,25 @@ rm -rf ~/.cio
 
 ## Install the agent skill
 
-This repo ships a [SKILL.md](skills/cio/SKILL.md) so Claude Code, Cursor, Codex, Windsurf, and other agents that support [open agent skills](https://github.com/vercel-labs/skills) know how to drive the CLI. Install it with:
+This repo ships a [SKILL.md](skills/cio/SKILL.md) so Claude Code, Cursor, Codex, Windsurf, and other agents that support [open agent skills](https://github.com/vercel-labs/skills) know how to drive the CLI.
+
+The CLI can install the current skills directly:
+
+```bash
+# Installs the bootstrap skill; prompts for global (~/.claude, ~/.agents)
+# vs. project (./.claude, ./.agents)
+cio skills install
+
+cio skills install --global          # install for every project
+cio skills install --project         # install into the current directory
+cio skills install --target claude   # Claude Code only (use --target codex for Codex)
+cio skills install --dry-run         # show what would be written
+cio skills install --force           # overwrite an existing SKILL.md
+```
+
+This installs only the Customer.io bootstrap skill — its `SKILL.md` routing index is written to `<target>/skills/<name>/` for Claude Code (`.claude`) and the open agent skills convention (`.agents`) Codex, Cursor, and Windsurf read. Every other reference (Journeys, CDP, Design Studio, recipes) is served by the backend and pulled on demand via `cio skills read <skill>`, so nothing else is copied locally and the content stays current.
+
+Or install via the open agent skills tooling:
 
 ```bash
 npx skills add customerio/cli
