@@ -1,7 +1,6 @@
 package client
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,6 +38,9 @@ type Credentials struct {
 	AccountID string `json:"account_id,omitempty"`
 	// Region is "us" or "eu" — determines the base URL.
 	Region string `json:"region,omitempty"`
+	// APIURL is an explicit base URL override (e.g. staging). When set it takes
+	// precedence over the region-derived URL.
+	APIURL string `json:"api_url,omitempty"`
 	// AccessToken is the cached short-lived JWT (from OAuth exchange).
 	AccessToken string `json:"access_token,omitempty"`
 	// AccessTokenExpiresAt is when the cached JWT expires.
@@ -153,6 +155,27 @@ func ResolveRegion(apiURL string, apiURLChanged bool) string {
 	return "us"
 }
 
+// ResolveBaseURL determines the API base URL in priority order:
+//  1. --api-url flag (when explicitly set)
+//  2. CIO_API_URL environment variable
+//  3. Active profile's stored APIURL
+//  4. URL derived from the resolved region (CIO_REGION > profile region > "us")
+func ResolveBaseURL(apiURLFlag string, apiURLChanged bool) string {
+	if apiURLChanged && apiURLFlag != "" {
+		return apiURLFlag
+	}
+
+	if v := os.Getenv("CIO_API_URL"); v != "" {
+		return v
+	}
+
+	if creds, err := ReadCredentials(); err == nil && creds.APIURL != "" {
+		return creds.APIURL
+	}
+
+	return BaseURLForRegion(ResolveRegion(apiURLFlag, apiURLChanged))
+}
+
 // CachedAccessToken returns the cached JWT if it's still valid (with 60s buffer).
 // If readOnly is true, only returns a cached token that was minted with read-only scope.
 // If readOnly is false, only returns a cached token that was NOT read-only (to avoid
@@ -238,9 +261,10 @@ func cacheAccessToken(serviceAccountToken, accessToken string, expiresIn int, re
 	}
 	defer unlock()
 
-	creds, err := ReadCredentials()
-	if err != nil {
-		// No existing config — can't cache without stored credentials.
+	cfg := readConfigOrEmpty()
+	creds := cfg.Profiles[resolveProfileName(cfg)]
+	if creds == nil {
+		// No stored credentials for the active profile — nothing to cache onto.
 		return nil
 	}
 	if serviceAccountToken != "" && creds.ServiceAccountToken != serviceAccountToken {
@@ -251,86 +275,50 @@ func cacheAccessToken(serviceAccountToken, accessToken string, expiresIn int, re
 	creds.AccessTokenExpiresAt = time.Now().Add(time.Duration(expiresIn) * time.Second)
 	creds.ReadOnly = readOnly
 	creds.Scopes = scopes
-	return writeCredentialsLocked(creds)
+	return writeConfigLocked(cfg)
 }
 
-// ReadCredentials reads credentials from ~/.cio/config.json.
+// ReadCredentials reads the active profile's credentials from ~/.cio/config.json.
+// Returns an error wrapping os.ErrNotExist when the profile is absent.
 func ReadCredentials() (*Credentials, error) {
-	path, err := configFilePath()
+	cfg, err := readConfig()
 	if err != nil {
 		return nil, err
 	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read config file: %w", err)
+	name := resolveProfileName(cfg)
+	creds := cfg.Profiles[name]
+	if creds == nil {
+		return nil, fmt.Errorf("profile %q not found: %w", name, os.ErrNotExist)
 	}
-
-	var creds Credentials
-	if err := json.Unmarshal(data, &creds); err != nil {
-		return nil, fmt.Errorf("parse config file: %w", err)
-	}
-
-	return &creds, nil
+	return creds, nil
 }
 
-// WriteCredentials writes credentials to ~/.cio/config.json with 0600 permissions.
-// Holds an exclusive lock for the duration of the write.
+// WriteCredentials writes the active profile's credentials to ~/.cio/config.json
+// with 0600 permissions. Holds an exclusive lock for the duration of the write.
 func WriteCredentials(creds *Credentials) error {
 	unlock, err := lockConfigDir()
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	return writeCredentialsLocked(creds)
-}
 
-// writeCredentialsLocked performs an atomic write (temp file + rename) of the
-// config file. Callers must already hold the config-dir lock.
-func writeCredentialsLocked(creds *Credentials) error {
-	dir, err := configDirPath()
-	if err != nil {
+	cfg := readConfigOrEmpty()
+	name := resolveProfileName(cfg)
+	// Validate at the central create point so a bad --profile / CIO_PROFILE value
+	// can't persist an odd profile key into the config.
+	if err := ValidateProfileName(name); err != nil {
 		return err
 	}
-
-	if err := os.MkdirAll(dir, configDirMode); err != nil {
-		return fmt.Errorf("create config dir: %w", err)
+	cfg.Profiles[name] = creds
+	if cfg.CurrentProfile == "" {
+		cfg.CurrentProfile = name
 	}
-
-	data, err := json.MarshalIndent(creds, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal config: %w", err)
-	}
-	data = append(data, '\n')
-
-	tmp, err := os.CreateTemp(dir, configFileName+".tmp.*")
-	if err != nil {
-		return fmt.Errorf("create temp config: %w", err)
-	}
-	tmpName := tmp.Name()
-	// Cleans up on any error path; a no-op after a successful Rename.
-	defer os.Remove(tmpName)
-
-	if err := tmp.Chmod(configFileMode); err != nil {
-		tmp.Close()
-		return fmt.Errorf("chmod temp config: %w", err)
-	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return fmt.Errorf("write temp config: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close temp config: %w", err)
-	}
-
-	if err := os.Rename(tmpName, filepath.Join(dir, configFileName)); err != nil {
-		return fmt.Errorf("rename temp config: %w", err)
-	}
-
-	return nil
+	return writeConfigLocked(cfg)
 }
 
-// DeleteCredentials removes the config file.
+// DeleteCredentials removes the active profile. If it was current_profile, that
+// is repointed to another profile; when the last profile is removed the config
+// file is deleted entirely.
 func DeleteCredentials() error {
 	unlock, err := lockConfigDir()
 	if err != nil {
@@ -338,16 +326,24 @@ func DeleteCredentials() error {
 	}
 	defer unlock()
 
-	path, err := configFilePath()
+	cfg, err := readConfig()
 	if err != nil {
-		return err
+		// No readable config — nothing to remove.
+		return nil
 	}
-
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove config file: %w", err)
+	name := resolveProfileName(cfg)
+	if _, ok := cfg.Profiles[name]; !ok {
+		return nil
 	}
+	delete(cfg.Profiles, name)
 
-	return nil
+	if len(cfg.Profiles) == 0 {
+		return removeConfigFile()
+	}
+	if cfg.CurrentProfile == name {
+		cfg.CurrentProfile = anyProfileName(cfg.Profiles)
+	}
+	return writeConfigLocked(cfg)
 }
 
 // lockConfigDir acquires an exclusive file lock on the config directory.
