@@ -93,6 +93,39 @@ cio auth logout
 When you use `CIO_TOKEN` or `--token` directly on normal commands, you may
 also need `CIO_REGION=us|eu` or `--api-url`.
 
+### Profiles
+
+Keep multiple credential sets — production, staging, several client accounts —
+in one config file and switch between them. Each profile has its own token,
+region, and optional custom base URL.
+
+```bash
+# Log into a named profile (custom --api-url is remembered; switches to it)
+echo "$STAGING_TOKEN" | cio auth login --profile staging --with-token --api-url https://<staging-host>
+
+# List profiles (the saved default is marked current)
+cio profile list
+
+# Use a profile for one command…
+cio --profile staging api /v1/campaigns
+# …or a whole session
+export CIO_PROFILE=staging
+
+# Change the default, or remove a profile
+cio profile use default
+cio profile remove staging
+```
+
+Profile resolution: `--profile` flag → `CIO_PROFILE` → stored `current_profile`
+→ `default`. An existing single-credential config is migrated to a `default`
+profile automatically. Profile names may contain letters, digits, `.`, `-`,
+and `_`.
+
+`cio auth login` without `--profile` re-authenticates whichever profile is
+currently selected, not always `default` — pass `--profile <name>` to target a
+specific one. `cio profile list` marks the saved default (`current_profile`),
+which a per-command `--profile` / `CIO_PROFILE` override does not change.
+
 ### How It Works
 
 1. You provide a service account token (`sa_live_...` from Customer.io UI → Account Settings → Manage API Credentials → Service Accounts, or `sa_sandbox_...` returned by Builder sandbox signup)
@@ -189,6 +222,7 @@ cio api /v1/environments/{environment_id}/campaigns \
 | Flag | Env Var | Description |
 |---|---|---|
 | `--token <value>` | `CIO_TOKEN` | Service account token override |
+| `--profile <name>` | `CIO_PROFILE` | Configuration profile to use |
 | `-X, --method` | | HTTP method override (default: GET, or POST if --json) |
 | `--json <payload>` | | Raw JSON request body or `@filename` to read from file |
 | `--params <json>` | | Query parameters as JSON → query string |

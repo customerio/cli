@@ -34,6 +34,9 @@ func executeCommand(args ...string) (stdout, stderr string, err error) {
 	_ = rootCmd.PersistentFlags().Set("api-url", "")
 	_ = rootCmd.PersistentFlags().Set("token", "")
 	_ = rootCmd.PersistentFlags().Set("scope", "")
+	_ = rootCmd.PersistentFlags().Set("profile", "")
+	// Clear the package-level profile selection so it doesn't leak between runs.
+	client.SetActiveProfile("")
 
 	// Reset local flags on subcommands that persist across test runs.
 	if f := apiCmd.Flags().Lookup("method"); f != nil {
@@ -150,22 +153,17 @@ func TestAuthLogin_SavesToken(t *testing.T) {
 		t.Errorf("expected status ok, got %v", result["status"])
 	}
 
-	// Verify file was written.
-	data, err := os.ReadFile(filepath.Join(tmpDir, ".cio", "config.json"))
+	// Verify the active profile's credentials were written.
+	creds, err := client.ReadCredentials()
 	if err != nil {
-		t.Fatalf("failed to read config file: %v", err)
+		t.Fatalf("failed to read credentials: %v", err)
 	}
-
-	var creds map[string]any
-	if err := json.Unmarshal(data, &creds); err != nil {
-		t.Fatalf("invalid JSON in config file: %v", err)
-	}
-	if creds["service_account_token"] != "sa_live_test123" {
-		t.Errorf("expected sa_live_test123, got %v", creds["service_account_token"])
+	if creds.ServiceAccountToken != "sa_live_test123" {
+		t.Errorf("expected sa_live_test123, got %v", creds.ServiceAccountToken)
 	}
 	// Should have cached the JWT.
-	if creds["access_token"] != "jwt-test-session" {
-		t.Errorf("expected cached JWT, got %v", creds["access_token"])
+	if creds.AccessToken != "jwt-test-session" {
+		t.Errorf("expected cached JWT, got %v", creds.AccessToken)
 	}
 
 	// Verify file permissions.
@@ -199,19 +197,15 @@ func TestAuthLogin_SavesSandboxToken(t *testing.T) {
 		t.Errorf("expected status ok, got %v", result["status"])
 	}
 
-	data, err := os.ReadFile(filepath.Join(tmpDir, ".cio", "config.json"))
+	creds, err := client.ReadCredentials()
 	if err != nil {
-		t.Fatalf("failed to read config file: %v", err)
+		t.Fatalf("failed to read credentials: %v", err)
 	}
-	var creds map[string]any
-	if err := json.Unmarshal(data, &creds); err != nil {
-		t.Fatalf("invalid JSON in config file: %v", err)
+	if creds.ServiceAccountToken != "sa_sandbox_test123" {
+		t.Errorf("expected sandbox token saved, got %v", creds.ServiceAccountToken)
 	}
-	if creds["service_account_token"] != "sa_sandbox_test123" {
-		t.Errorf("expected sandbox token saved, got %v", creds["service_account_token"])
-	}
-	if creds["access_token"] != "jwt-test-session" {
-		t.Errorf("expected cached JWT, got %v", creds["access_token"])
+	if creds.AccessToken != "jwt-test-session" {
+		t.Errorf("expected cached JWT, got %v", creds.AccessToken)
 	}
 }
 
@@ -300,16 +294,12 @@ func TestAuthLogin_InvalidTokenPreservesExistingCredentials(t *testing.T) {
 	}
 
 	// Previous working credentials must remain intact.
-	data, err := os.ReadFile(filepath.Join(tmpDir, ".cio", "config.json"))
+	creds, err := client.ReadCredentials()
 	if err != nil {
-		t.Fatalf("prior config file should survive failed login: %v", err)
+		t.Fatalf("prior credentials should survive failed login: %v", err)
 	}
-	var creds map[string]any
-	if err := json.Unmarshal(data, &creds); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if creds["service_account_token"] != "sa_live_previous" {
-		t.Errorf("prior token clobbered by failed login, got %v", creds["service_account_token"])
+	if creds.ServiceAccountToken != "sa_live_previous" {
+		t.Errorf("prior token clobbered by failed login, got %v", creds.ServiceAccountToken)
 	}
 }
 
@@ -337,17 +327,13 @@ func TestAuthLogin_DiscoverEURegion(t *testing.T) {
 		t.Errorf("expected data_center 'eu', got %v", result["data_center"])
 	}
 
-	// Verify config file has the discovered region.
-	data, err := os.ReadFile(filepath.Join(tmpDir, ".cio", "config.json"))
+	// Verify the stored profile has the discovered region.
+	creds, err := client.ReadCredentials()
 	if err != nil {
-		t.Fatalf("failed to read config: %v", err)
+		t.Fatalf("failed to read credentials: %v", err)
 	}
-	var creds map[string]any
-	if err := json.Unmarshal(data, &creds); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if creds["region"] != "eu" {
-		t.Errorf("expected region 'eu' in config, got %v", creds["region"])
+	if creds.Region != "eu" {
+		t.Errorf("expected region 'eu' in config, got %v", creds.Region)
 	}
 }
 
@@ -841,23 +827,19 @@ func TestAuthSignupVerify_ReturnsBootstrapToken(t *testing.T) {
 	}
 
 	// verify should persist the bootstrap token + account_id to ~/.cio/config.json.
-	data, err := os.ReadFile(filepath.Join(tmpDir, ".cio", "config.json"))
+	creds, err := client.ReadCredentials()
 	if err != nil {
-		t.Fatalf("expected config written, got: %v", err)
+		t.Fatalf("expected credentials written, got: %v", err)
 	}
-	var creds map[string]any
-	if err := json.Unmarshal(data, &creds); err != nil {
-		t.Fatalf("invalid config JSON: %v", err)
+	if creds.ServiceAccountToken != "sa_live_bootstrap" {
+		t.Errorf("expected service_account_token saved, got %v", creds.ServiceAccountToken)
 	}
-	if creds["service_account_token"] != "sa_live_bootstrap" {
-		t.Errorf("expected service_account_token saved, got %v", creds["service_account_token"])
-	}
-	if creds["account_id"] != "1" {
-		t.Errorf("expected account_id=1, got %v", creds["account_id"])
+	if creds.AccountID != "1" {
+		t.Errorf("expected account_id=1, got %v", creds.AccountID)
 	}
 	// The server response includes data_center=eu (echoed from request body).
-	if creds["region"] != "eu" {
-		t.Errorf("expected region=eu (from response data_center), got %v", creds["region"])
+	if creds.Region != "eu" {
+		t.Errorf("expected region=eu (from response data_center), got %v", creds.Region)
 	}
 }
 
@@ -884,22 +866,18 @@ func TestAuthSignupVerify_ReturnsSandboxBootstrapToken(t *testing.T) {
 		t.Errorf("expected sandbox bootstrap token, got %v", result["token"])
 	}
 
-	data, err := os.ReadFile(filepath.Join(tmpDir, ".cio", "config.json"))
+	creds, err := client.ReadCredentials()
 	if err != nil {
-		t.Fatalf("expected config written, got: %v", err)
+		t.Fatalf("expected credentials written, got: %v", err)
 	}
-	var creds map[string]any
-	if err := json.Unmarshal(data, &creds); err != nil {
-		t.Fatalf("invalid config JSON: %v", err)
+	if creds.ServiceAccountToken != "sa_sandbox_bootstrap" {
+		t.Errorf("expected sandbox token saved, got %v", creds.ServiceAccountToken)
 	}
-	if creds["service_account_token"] != "sa_sandbox_bootstrap" {
-		t.Errorf("expected sandbox token saved, got %v", creds["service_account_token"])
+	if creds.AccountID != "1" {
+		t.Errorf("expected account_id=1, got %v", creds.AccountID)
 	}
-	if creds["account_id"] != "1" {
-		t.Errorf("expected account_id=1, got %v", creds["account_id"])
-	}
-	if creds["region"] != "us" {
-		t.Errorf("expected region=us, got %v", creds["region"])
+	if creds.Region != "us" {
+		t.Errorf("expected region=us, got %v", creds.Region)
 	}
 }
 
@@ -927,19 +905,15 @@ func TestAuthSignupVerify_EURegionViaUSEndpoint(t *testing.T) {
 		t.Fatalf("saveSignupCredentials: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(tmpDir, ".cio", "config.json"))
+	creds, err := client.ReadCredentials()
 	if err != nil {
-		t.Fatalf("expected config written, got: %v", err)
+		t.Fatalf("expected credentials written, got: %v", err)
 	}
-	var creds map[string]any
-	if err := json.Unmarshal(data, &creds); err != nil {
-		t.Fatalf("invalid config JSON: %v", err)
+	if creds.Region != "eu" {
+		t.Errorf("expected region=eu (response data_center beats URL), got %v", creds.Region)
 	}
-	if creds["region"] != "eu" {
-		t.Errorf("expected region=eu (response data_center beats URL), got %v", creds["region"])
-	}
-	if creds["account_id"] != "42" {
-		t.Errorf("expected account_id=42, got %v", creds["account_id"])
+	if creds.AccountID != "42" {
+		t.Errorf("expected account_id=42, got %v", creds.AccountID)
 	}
 }
 
@@ -993,16 +967,12 @@ func TestAuthLogin_FromClipboard_SavesToken(t *testing.T) {
 		t.Errorf("expected status ok, got %v", result["status"])
 	}
 
-	data, err := os.ReadFile(filepath.Join(tmpDir, ".cio", "config.json"))
+	creds, err := client.ReadCredentials()
 	if err != nil {
-		t.Fatalf("failed to read config file: %v", err)
+		t.Fatalf("failed to read credentials: %v", err)
 	}
-	var creds map[string]any
-	if err := json.Unmarshal(data, &creds); err != nil {
-		t.Fatalf("invalid JSON in config file: %v", err)
-	}
-	if creds["service_account_token"] != "sa_live_test123" {
-		t.Errorf("expected sa_live_test123, got %v", creds["service_account_token"])
+	if creds.ServiceAccountToken != "sa_live_test123" {
+		t.Errorf("expected sa_live_test123, got %v", creds.ServiceAccountToken)
 	}
 }
 

@@ -73,12 +73,25 @@ func init() {
 	flags.StringSlice("scope", nil, "Additional OAuth scope(s) to request during token exchange")
 	flags.String("api-url", "", "API base URL (default: derived from region)")
 	flags.String("token", "", "Service account token (overrides stored credentials and CIO_TOKEN)")
+	flags.String("profile", "", "Configuration profile to use (overrides CIO_PROFILE; default: current profile)")
 	flags.Duration("timeout", client.DefaultTimeout, "HTTP request timeout")
 	flags.Int("page", 0, "Page number")
 	flags.Int("limit", 0, "Page size")
 	flags.Bool("page-all", false, "Auto-paginate, emit NDJSON")
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		// Select the active profile before any credential access so that auth
+		// commands and credential lookups all resolve against the same profile.
+		if profile, _ := cmd.Flags().GetString("profile"); profile != "" {
+			if err := client.ValidateProfileName(profile); err != nil {
+				output.PrintError(output.CodeValidationError, err.Error(), map[string]string{
+					"flag": "--profile",
+				})
+				return err
+			}
+			client.SetActiveProfile(profile)
+		}
+
 		// Bind environment variables as fallback defaults.
 		if !cmd.Flags().Changed("timeout") {
 			if v := os.Getenv("CIO_TIMEOUT"); v != "" {
@@ -132,16 +145,9 @@ func init() {
 		tokenFlag, _ := cmd.Flags().GetString("token")
 		saToken := client.ResolveServiceAccountToken(tokenFlag)
 
-		// Resolve base URL: explicit flag > env var > region.
-		apiURL, _ := cmd.Flags().GetString("api-url")
-		if apiURL == "" {
-			if envURL := os.Getenv("CIO_API_URL"); envURL != "" {
-				apiURL = envURL
-			} else {
-				region := client.ResolveRegion(apiURL, cmd.Flags().Changed("api-url"))
-				apiURL = client.BaseURLForRegion(region)
-			}
-		}
+		// Resolve base URL: explicit flag > env var > profile URL > region.
+		apiURLFlag, _ := cmd.Flags().GetString("api-url")
+		apiURL := client.ResolveBaseURL(apiURLFlag, cmd.Flags().Changed("api-url"))
 
 		timeout, _ := cmd.Flags().GetDuration("timeout")
 		readOnly, _ := cmd.Flags().GetBool("read-only")
@@ -193,7 +199,11 @@ func isAuthCommand(cmd *cobra.Command) bool {
 		"cio auth logout",
 		"cio auth signup",
 		"cio auth signup start",
-		"cio auth signup verify":
+		"cio auth signup verify",
+		"cio profile",
+		"cio profile list",
+		"cio profile use",
+		"cio profile remove":
 		return true
 	}
 	// Track API send commands authenticate directly with the sa_live_ token

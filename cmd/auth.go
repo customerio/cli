@@ -131,7 +131,11 @@ moment you copy it:
 
 For CI or non-interactive use:
   $ echo "$TOKEN" | cio auth login --with-token
-  $ cio auth login <token>`,
+  $ cio auth login <token>
+
+Credentials are saved to the active profile and that profile becomes current.
+Pass --profile <name> to log into a specific profile; without it, login
+re-authenticates whichever profile is currently selected (see 'cio profile').`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		withToken, _ := cmd.Flags().GetBool("with-token")
@@ -226,7 +230,20 @@ For CI or non-interactive use:
 			AccessTokenExpiresAt: time.Now().Add(time.Duration(result.ExpiresIn) * time.Second),
 		}
 
+		// Persist a custom base URL (e.g. staging) so the profile reuses it
+		// without re-passing --api-url on every command.
+		if apiURL := resolveLoginAPIURL(cmd); apiURL != "" {
+			creds.APIURL = apiURL
+		}
+
 		if err := client.WriteCredentials(creds); err != nil {
+			output.PrintError(output.CodeGeneralError, err.Error(), nil)
+			return err
+		}
+
+		// Logging into a profile makes it the active one for later commands.
+		profile := client.ActiveProfileName()
+		if err := client.SetCurrentProfile(profile); err != nil {
 			output.PrintError(output.CodeGeneralError, err.Error(), nil)
 			return err
 		}
@@ -234,6 +251,7 @@ For CI or non-interactive use:
 		return output.FprintJSON(cmd.OutOrStdout(), map[string]any{
 			"status":      "ok",
 			"message":     "Authenticated successfully. Credentials saved to ~/.cio/config.json",
+			"profile":     profile,
 			"account_id":  result.AccountID,
 			"region":      result.Region,
 			"base_url":    result.BaseURL,
@@ -250,9 +268,10 @@ For CI or non-interactive use:
 var authLogoutCmd = &cobra.Command{
 	Use:   "logout",
 	Short: "Remove stored authentication credentials",
-	Long:  "Delete the stored credentials from ~/.cio/config.json.",
+	Long:  "Delete the active profile's stored credentials from ~/.cio/config.json.",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		profile := client.ActiveProfileName()
 		if err := client.DeleteCredentials(); err != nil {
 			output.PrintError(output.CodeGeneralError, err.Error(), nil)
 			return err
@@ -260,7 +279,8 @@ var authLogoutCmd = &cobra.Command{
 
 		return output.FprintJSON(cmd.OutOrStdout(), map[string]any{
 			"status":  "ok",
-			"message": "Credentials removed from ~/.cio/config.json",
+			"message": fmt.Sprintf("Credentials for profile %q removed from ~/.cio/config.json", profile),
+			"profile": profile,
 		})
 	},
 }
@@ -310,6 +330,7 @@ Token resolution order:
 
 		statusResult := map[string]any{
 			"status":       "authenticated",
+			"profile":      client.ActiveProfileName(),
 			"token_source": tokenSource,
 			"token":        client.MaskToken(token),
 		}
