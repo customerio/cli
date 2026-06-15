@@ -18,6 +18,25 @@ cio auth status
 
 If auth fails, ask the user to run `cio auth login` and paste their `sa_live_` token.
 
+## Profiles
+
+Credentials live in named profiles (in `~/.cio/config.json`), each with its own
+token, region, and optional API base URL. This lets one machine hold several
+accounts (e.g. production, staging, a client) without re-authenticating.
+
+```bash
+cio profile list                 # list profiles; the saved default is marked current
+cio profile use <name>           # set the default profile
+cio profile remove <name>        # delete a profile
+cio auth login --profile <name>  # create/re-auth a profile (persists a custom --api-url)
+```
+
+Select a profile for a single command with the global `--profile <name>` flag,
+or for a whole session with the `CIO_PROFILE` env var. Resolution order:
+`--profile` → `CIO_PROFILE` → stored `current_profile` → `default`. A legacy
+single-credential config is migrated to a `default` profile automatically.
+Profile names allow letters, digits, `.`, `-`, and `_`.
+
 ## The `api` Command
 
 The primary command is `cio api <path>`. It makes authenticated HTTP requests to supported Customer.io API endpoints.
@@ -82,6 +101,7 @@ cio skills read design-studio/nodes.md  # node creation, component markup
 | `--scope <value>` | Request additional OAuth scopes during token exchange |
 | `--api-url <url>` | Override the API base URL |
 | `--token <value>` | Override the service account token |
+| `--profile <name>` | Configuration profile to use (overrides `CIO_PROFILE`; default: current profile) |
 | `--page <n>` | Page number |
 | `--limit <n>` | Page size |
 | `--page-all` | Auto-paginate, emit NDJSON (one JSON object per line) |
