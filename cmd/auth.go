@@ -43,7 +43,7 @@ var (
 // contents are ignored; they are never echoed, stored, or sent anywhere.
 func clipboardToken(cmd *cobra.Command, wait bool) (string, error) {
 	if wait {
-		fmt.Fprintf(cmd.ErrOrStderr(), "Sign in and copy your token from:\n\n    %s\n\nWaiting for it on your clipboard (Ctrl-C cancels)...\n", resolveCLILoginURL())
+		fmt.Fprintf(cmd.ErrOrStderr(), "Sign in and copy your token from:\n\n    %s\n\nWaiting for it on your clipboard (Ctrl-C cancels)...\n", resolveCLILoginURL(resolveLoginBaseURL(cmd)))
 	}
 	deadline := time.Now().Add(clipboardWaitBudget)
 	for {
@@ -182,7 +182,7 @@ re-authenticates whichever profile is currently selected (see 'cio profile').`,
 
 			// Print the URL rather than shelling out to a browser — works
 			// under SSH, headless CI, and restrictive sandboxes.
-			loginURL := resolveCLILoginURL()
+			loginURL := resolveCLILoginURL(resolveLoginBaseURL(cmd))
 			fmt.Fprintf(cmd.ErrOrStderr(), "Open this URL in a browser to create a CLI token:\n\n    %s\n\n", loginURL)
 			fmt.Fprint(cmd.ErrOrStderr(), "After logging in, copy the token shown and paste it here.\n")
 
@@ -620,14 +620,13 @@ func loadStoredServiceAccountToken() string {
 // web UI. The CLI's stored credentials are unchanged — this flow only
 // bootstraps a browser session, it does not refresh the saved token.
 func runLoginCLILink(cmd *cobra.Command, saToken string) error {
-	baseURL := resolveLoginAPIURL(cmd)
+	// Honor the host the stored credentials were issued against before falling
+	// back to the region default. Otherwise a token minted on a non-production
+	// host gets exchanged against us.fly.customer.io and is rejected with a 401
+	// — the same resolution order used by every other command.
+	baseURL := resolveLoginBaseURL(cmd)
 	if baseURL == "" {
-		// Use the same default as the rest of the CLI when --api-url isn't set.
-		region := "us"
-		if creds, err := client.ReadCredentials(); err == nil && creds.Region != "" {
-			region = creds.Region
-		}
-		baseURL = client.BaseURLForRegion(region)
+		baseURL = client.BaseURLForRegion("us")
 	}
 	timeout, _ := cmd.Flags().GetDuration("timeout")
 
@@ -636,7 +635,7 @@ func runLoginCLILink(cmd *cobra.Command, saToken string) error {
 		return handleAPIError(err)
 	}
 
-	uiURL := resolveCLILoginURL() + "?token=" + url.QueryEscape(resp.HandoffToken)
+	uiURL := resolveCLILoginURL(baseURL) + "?token=" + url.QueryEscape(resp.HandoffToken)
 
 	fmt.Fprintf(cmd.ErrOrStderr(), "You're already signed in. Open this URL in your browser to access Customer.io:\n\n    %s\n\n", uiURL)
 	fmt.Fprintf(cmd.ErrOrStderr(), "This link is valid for %d seconds.\n", resp.ExpiresIn)
@@ -649,15 +648,58 @@ func runLoginCLILink(cmd *cobra.Command, saToken string) error {
 	})
 }
 
-// resolveCLILoginURL returns the shared hosted CLI login URL.
-// CIO_UI_URL can override the UI origin for non-production or test flows.
-// The API URL is intentionally ignored here: it is a backend host and bears no
-// relation to where the UI is served.
-func resolveCLILoginURL() string {
+// resolveCLILoginURL returns the hosted CLI login page URL for a given API base
+// URL. CIO_UI_URL overrides the origin entirely (non-production or test flows).
+// Otherwise the /cli page is served by the shared, region-less frontend that
+// fronts the API host, so we derive the UI origin by dropping the region label:
+//
+//	https://us.fly.customer.io -> https://fly.customer.io/cli
+//	https://eu.fly.customer.io -> https://fly.customer.io/cli
+func resolveCLILoginURL(apiBaseURL string) string {
 	if envURL := os.Getenv("CIO_UI_URL"); envURL != "" {
 		return strings.TrimRight(envURL, "/") + "/cli"
 	}
+	if origin := uiOriginFromAPIBase(apiBaseURL); origin != "" {
+		return origin + "/cli"
+	}
 	return "https://fly.customer.io/cli"
+}
+
+// uiOriginFromAPIBase derives the region-less UI origin from an API base URL by
+// stripping a leading "us." or "eu." region label from the host. Returns "" for
+// an unparseable or empty URL so the caller can fall back to the default.
+func uiOriginFromAPIBase(apiBaseURL string) string {
+	u, err := url.Parse(strings.TrimRight(apiBaseURL, "/"))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	host := u.Host
+	if i := strings.IndexByte(host, '.'); i > 0 {
+		switch strings.ToLower(host[:i]) {
+		case "us", "eu":
+			host = host[i+1:]
+		}
+	}
+	return u.Scheme + "://" + host
+}
+
+// resolveLoginBaseURL determines the API base URL the login flow should talk to,
+// in the same priority order as client.ResolveBaseURL: --api-url > CIO_API_URL >
+// the active profile's stored APIURL > the region default. Returns "" only when
+// nothing is known (e.g. a first-time login with no stored credentials).
+func resolveLoginBaseURL(cmd *cobra.Command) string {
+	if u := resolveLoginAPIURL(cmd); u != "" {
+		return u
+	}
+	if creds, err := client.ReadCredentials(); err == nil {
+		if creds.APIURL != "" {
+			return creds.APIURL
+		}
+		if creds.Region != "" {
+			return client.BaseURLForRegion(creds.Region)
+		}
+	}
+	return ""
 }
 
 // resolveLoginAPIURL picks --api-url > CIO_API_URL > the default token

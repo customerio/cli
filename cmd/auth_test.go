@@ -346,7 +346,7 @@ func TestResolveCLILoginURL(t *testing.T) {
 	cases := []struct {
 		name     string
 		uiURLEnv string
-		region   string
+		apiBase  string
 		want     string
 	}{
 		{
@@ -354,25 +354,40 @@ func TestResolveCLILoginURL(t *testing.T) {
 			want: "https://fly.customer.io/cli",
 		},
 		{
-			name:   "CIO_REGION=eu still uses the shared frontend host",
-			region: "eu",
-			want:   "https://fly.customer.io/cli",
+			name:    "US base strips the region label to the shared frontend",
+			apiBase: "https://us.fly.customer.io",
+			want:    "https://fly.customer.io/cli",
+		},
+		{
+			name:    "EU base strips the region label to the shared frontend",
+			apiBase: "https://eu.fly.customer.io",
+			want:    "https://fly.customer.io/cli",
+		},
+		{
+			name:    "non-production base strips the region label, keeping the host",
+			apiBase: "https://us.example.test",
+			want:    "https://example.test/cli",
+		},
+		{
+			name:    "trailing slash on the base is tolerated",
+			apiBase: "https://us.example.test/",
+			want:    "https://example.test/cli",
 		},
 		{
 			name:     "CIO_UI_URL overrides everything",
 			uiURLEnv: "http://fly.test:4200/",
+			apiBase:  "https://us.example.test",
 			want:     "http://fly.test:4200/cli",
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("CIO_REGION", tc.region)
 			t.Setenv("CIO_UI_URL", tc.uiURLEnv)
 
-			got := resolveCLILoginURL()
+			got := resolveCLILoginURL(tc.apiBase)
 			if got != tc.want {
-				t.Errorf("resolveCLILoginURL() = %q, want %q", got, tc.want)
+				t.Errorf("resolveCLILoginURL(%q) = %q, want %q", tc.apiBase, got, tc.want)
 			}
 		})
 	}
@@ -497,6 +512,114 @@ func TestAuthLogin_StoredTokenTriggersWebHandoff(t *testing.T) {
 	}
 	if reread.ServiceAccountToken != "sa_live_existing" {
 		t.Errorf("stored token should not change, got %q", reread.ServiceAccountToken)
+	}
+}
+
+// TestAuthLogin_StoredTokenHandoffUsesStoredAPIURL is the regression test for
+// the bug where `cio auth login` (no args) on a profile pointed at a
+// non-production host minted the handoff link against us.fly.customer.io and
+// got a 401 — even though `cio auth status` worked, since
+// it honors the stored api_url. The handoff must hit the stored host too.
+func TestAuthLogin_StoredTokenHandoffUsesStoredAPIURL(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("CIO_TOKEN", "")
+	t.Setenv("CIO_API_URL", "")
+	t.Setenv("CIO_UI_URL", "https://fly.example.test")
+
+	mintHits := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/login_cli/link" {
+			mintHits++
+			_, _ = w.Write([]byte(`{"handoff_token":"handoff-jwt-xyz","expires_in":60}`))
+			return
+		}
+		t.Errorf("unexpected request to %s", r.URL.Path)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	// Seed a profile whose stored APIURL is the test server (a stand-in for a
+	// non-production host). Crucially, no --api-url flag and no CIO_API_URL.
+	creds := &client.Credentials{
+		ServiceAccountToken: "sa_live_existing",
+		AccountID:           "42",
+		Region:              "us",
+		APIURL:              server.URL,
+	}
+	if err := client.WriteCredentials(creds); err != nil {
+		t.Fatalf("seed credentials: %v", err)
+	}
+
+	stdout, stderr, err := executeCommand("auth", "login")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstderr: %s", err, stderr)
+	}
+	if mintHits != 1 {
+		t.Fatalf("expected 1 mint request to the stored host, got %d", mintHits)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\nstdout: %s", err, stdout)
+	}
+	gotURL, _ := result["url"].(string)
+	want := "https://fly.example.test/cli?token=handoff-jwt-xyz"
+	if gotURL != want {
+		t.Errorf("expected URL %q, got %q", want, gotURL)
+	}
+}
+
+// TestAuthLogin_HandoffURLDerivedFromBaseURL is the regression test for the
+// second half of the bug: the printed browser URL was hardcoded to the
+// production frontend (fly.customer.io) instead of being derived from the host
+// the token actually belongs to. Without CIO_UI_URL set, the handoff URL must
+// share the base URL's host (region label stripped), not point at production.
+func TestAuthLogin_HandoffURLDerivedFromBaseURL(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("CIO_TOKEN", "")
+	t.Setenv("CIO_API_URL", "")
+	t.Setenv("CIO_UI_URL", "")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/login_cli/link" {
+			_, _ = w.Write([]byte(`{"handoff_token":"handoff-jwt-derived","expires_in":60}`))
+			return
+		}
+		t.Errorf("unexpected request to %s", r.URL.Path)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	creds := &client.Credentials{
+		ServiceAccountToken: "sa_live_existing",
+		AccountID:           "42",
+		Region:              "us",
+		APIURL:              server.URL,
+	}
+	if err := client.WriteCredentials(creds); err != nil {
+		t.Fatalf("seed credentials: %v", err)
+	}
+
+	stdout, stderr, err := executeCommand("auth", "login")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstderr: %s", err, stderr)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\nstdout: %s", err, stdout)
+	}
+	gotURL, _ := result["url"].(string)
+	// uiOriginFromAPIBase only strips a leading us./eu. label; the test server's
+	// 127.0.0.1 host is preserved, so the handoff stays on the mint host.
+	want := server.URL + "/cli?token=handoff-jwt-derived"
+	if gotURL != want {
+		t.Errorf("expected handoff URL derived from base %q, got %q", want, gotURL)
+	}
+	if strings.Contains(gotURL, "fly.customer.io") {
+		t.Errorf("handoff URL should not point at production, got %q", gotURL)
 	}
 }
 
