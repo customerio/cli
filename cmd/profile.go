@@ -44,7 +44,7 @@ var profileListCmd = &cobra.Command{
 			profiles = []client.ProfileInfo{}
 		}
 		data, _ := json.Marshal(map[string]any{"profiles": profiles})
-		return output.FprintProcess(cmd.OutOrStdout(), json.RawMessage(data), GetJQFlag(cmd))
+		return output.FprintProcess(cmd.OutOrStdout(), json.RawMessage(data), GetJQFlag(cmd), GetRawFlag(cmd))
 	},
 }
 

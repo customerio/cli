@@ -15,10 +15,11 @@ import (
 // doPageAll runs auto-pagination and writes NDJSON to stdout.
 func doPageAll(cmd *cobra.Command, c *client.Client, path string, params map[string]string, startPage, limit int) error {
 	jq := GetJQFlag(cmd)
+	raw := GetRawFlag(cmd)
 
 	var w io.Writer = cmd.OutOrStdout()
-	if jq != "" {
-		w = &filterWriter{w: cmd.OutOrStdout(), jq: jq}
+	if jq != "" || raw {
+		w = &filterWriter{w: cmd.OutOrStdout(), jq: jq, raw: raw}
 	}
 
 	err := c.PageAll(client.PageAllConfig{
@@ -36,10 +37,11 @@ func doPageAll(cmd *cobra.Command, c *client.Client, path string, params map[str
 	return nil
 }
 
-// filterWriter wraps an io.Writer and applies --jq to each line written.
+// filterWriter wraps an io.Writer and applies --jq / --raw-output to each line written.
 type filterWriter struct {
-	w  io.Writer
-	jq string
+	w   io.Writer
+	jq  string
+	raw bool
 }
 
 func (fw *filterWriter) Write(p []byte) (int, error) {
@@ -47,7 +49,7 @@ func (fw *filterWriter) Write(p []byte) (int, error) {
 	if len(trimmed) == 0 {
 		return len(p), nil
 	}
-	if err := output.FprintProcess(fw.w, json.RawMessage(trimmed), fw.jq); err != nil {
+	if err := output.FprintProcess(fw.w, json.RawMessage(trimmed), fw.jq, fw.raw); err != nil {
 		return 0, err
 	}
 	return len(p), nil

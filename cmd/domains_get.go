@@ -60,5 +60,5 @@ func runDomainsGet(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return handleAPIError(err)
 	}
-	return output.FprintProcess(cmd.OutOrStdout(), result, GetJQFlag(cmd))
+	return output.FprintProcess(cmd.OutOrStdout(), result, GetJQFlag(cmd), GetRawFlag(cmd))
 }

@@ -400,7 +400,7 @@ func runDomainsVerify(cmd *cobra.Command, args []string) error {
 	}
 
 	if GetJQFlag(cmd) != "" {
-		return output.FprintProcess(cmd.OutOrStdout(), result, GetJQFlag(cmd))
+		return output.FprintProcess(cmd.OutOrStdout(), result, GetJQFlag(cmd), GetRawFlag(cmd))
 	}
 
 	return printDomainVerifyResult(cmd, result, dom.Name)

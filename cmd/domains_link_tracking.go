@@ -148,7 +148,7 @@ func runLinkTrackingConfigure(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return handleAPIError(err)
 	}
-	return output.FprintProcess(cmd.OutOrStdout(), result, GetJQFlag(cmd))
+	return output.FprintProcess(cmd.OutOrStdout(), result, GetJQFlag(cmd), GetRawFlag(cmd))
 }
 
 func runLinkTrackingVerify(cmd *cobra.Command, args []string) error {
@@ -188,7 +188,7 @@ func runLinkTrackingVerify(cmd *cobra.Command, args []string) error {
 	}
 
 	if GetJQFlag(cmd) != "" {
-		return output.FprintProcess(cmd.OutOrStdout(), result, GetJQFlag(cmd))
+		return output.FprintProcess(cmd.OutOrStdout(), result, GetJQFlag(cmd), GetRawFlag(cmd))
 	}
 
 	return printDNSCheckResult(cmd, result, dom.Name, "link_tracking", "cio domains link_tracking verify")
