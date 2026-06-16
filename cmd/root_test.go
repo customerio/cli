@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -39,5 +41,28 @@ func TestSetVersionIgnoresEmptyVersion(t *testing.T) {
 	}
 	if got, want := useragent.Get(), "Customer.io-CLI/v1.2.3 (+https://github.com/customerio/cli)"; got != want {
 		t.Fatalf("useragent.Get() = %q, want %q", got, want)
+	}
+}
+
+func TestFileBinding(t *testing.T) {
+	dir := t.TempDir()
+	raw := filepath.Join(dir, "body.txt")
+	if err := os.WriteFile(raw, []byte(`<x>Hi "there"`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := fileBinding("rawfile", "html="+raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if want := `html=<x>Hi "there"`; got != want {
+		t.Errorf("binding mismatch:\n want: %q\n got:  %q", want, got)
+	}
+
+	if _, err := fileBinding("rawfile", "noequals"); err == nil {
+		t.Error("expected error for missing =")
+	}
+	if _, err := fileBinding("slurpfile", "x="+filepath.Join(dir, "missing.json")); err == nil {
+		t.Error("expected error for missing file")
 	}
 }
