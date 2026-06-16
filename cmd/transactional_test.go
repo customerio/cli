@@ -157,6 +157,37 @@ func TestTransactionalSend_DryRun(t *testing.T) {
 	}
 }
 
+// TestTransactionalSend_DryRun_APIURLOverridesTrackHost covers SELF-48 for the
+// transactional send path: --api-url must direct the send at that host.
+func TestTransactionalSend_DryRun_APIURLOverridesTrackHost(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CIO_TOKEN", "sa_live_test123")
+	t.Setenv("CIO_ACCESS_TOKEN", "")
+	t.Setenv("CIO_ENVIRONMENT_ID", "")
+	t.Setenv("CIO_TRACK_URL", "")
+	resetSendFlags()
+	resetTransactionalFlags()
+
+	stdout, _, err := executeCommand("transactional", "send", "email",
+		"--environment-id", "71981",
+		"--token", "sa_live_test123",
+		"--transactional-message-id", "3",
+		"--to", "test@example.com",
+		"--api-url", "https://track.example.test",
+		"--dry-run")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\nstdout: %s", err, stdout)
+	}
+	if result["url"] != "https://track.example.test/v1/send/email" {
+		t.Errorf("expected overridden track URL, got %v", result["url"])
+	}
+}
+
 func TestTransactionalSend_JQFilter(t *testing.T) {
 	_, cleanup := setupTransactionalSendTest(t, "sa_live_test123", "123")
 	defer cleanup()

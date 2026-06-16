@@ -358,3 +358,44 @@ func TestResolveRegion(t *testing.T) {
 		t.Errorf("expected 'eu', got %q", got)
 	}
 }
+
+// TestResolveTrackBaseURL covers SELF-48: --api-url, CIO_TRACK_URL, and the
+// active profile's region must drive the track host, not a hardcoded one.
+func TestResolveTrackBaseURL(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("CIO_REGION", "")
+	t.Setenv("CIO_API_URL", "")
+	t.Setenv("CIO_TRACK_URL", "")
+
+	// Default: no flag, no env, no profile → production US track host.
+	if got := ResolveTrackBaseURL("", false); got != "https://track.customer.io" {
+		t.Errorf("default: got %q, want https://track.customer.io", got)
+	}
+
+	// Explicit --api-url override wins and is used verbatim.
+	if got := ResolveTrackBaseURL("https://track.example.test", true); got != "https://track.example.test" {
+		t.Errorf("--api-url override: got %q, want https://track.example.test", got)
+	}
+
+	// CIO_TRACK_URL env override (no flag).
+	t.Setenv("CIO_TRACK_URL", "https://track-env.example.test")
+	if got := ResolveTrackBaseURL("", false); got != "https://track-env.example.test" {
+		t.Errorf("CIO_TRACK_URL: got %q, want https://track-env.example.test", got)
+	}
+	t.Setenv("CIO_TRACK_URL", "")
+
+	// Derived from the active profile's stored region.
+	creds := Credentials{ServiceAccountToken: "sa_live_x", Region: "eu"}
+	data, _ := json.Marshal(creds)
+	dir := filepath.Join(tmpDir, ".cio")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got := ResolveTrackBaseURL("", false); got != "https://track-eu.customer.io" {
+		t.Errorf("profile-derived: got %q, want https://track-eu.customer.io", got)
+	}
+}

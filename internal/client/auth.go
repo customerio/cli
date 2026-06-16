@@ -81,7 +81,7 @@ func BaseURLForRegion(region string) string {
 
 // TrackBaseURLForRegion returns the track.customer.io URL for the given region.
 // The track API hosts the transactional send endpoints (POST /v1/send/*).
-// To override the host, set CIO_TRACK_URL.
+// To override the host, pass --api-url or set CIO_TRACK_URL.
 func TrackBaseURLForRegion(region string) string {
 	switch strings.ToLower(strings.TrimSpace(region)) {
 	case "eu":
@@ -89,6 +89,24 @@ func TrackBaseURLForRegion(region string) string {
 	default:
 		return "https://track.customer.io"
 	}
+}
+
+// ResolveTrackBaseURL determines the track API base URL for send commands, in
+// priority order:
+//  1. --api-url flag (when explicitly set) — used verbatim, mirroring `cio api`
+//  2. CIO_TRACK_URL environment variable
+//  3. Derived from the resolved region (CIO_REGION > profile region > "us")
+//
+// Non-production hosts that have no region mapping are reached via --api-url or
+// CIO_TRACK_URL.
+func ResolveTrackBaseURL(apiURLFlag string, apiURLChanged bool) string {
+	if apiURLChanged && apiURLFlag != "" {
+		return apiURLFlag
+	}
+	if v := os.Getenv("CIO_TRACK_URL"); v != "" {
+		return v
+	}
+	return TrackBaseURLForRegion(ResolveRegion("", false))
 }
 
 // RegionFromBaseURL extracts the region from a base URL, or empty string if unknown.

@@ -288,14 +288,13 @@ func runTrackSend(cmd *cobra.Command, sendPath string, body json.RawMessage) err
 		return err
 	}
 
-	// Resolve track API base URL: CIO_TRACK_URL env var, or derived from region.
-	trackURL := os.Getenv("CIO_TRACK_URL")
-	if trackURL == "" {
-		apiURL, _ := cmd.Flags().GetString("api-url")
-		region := client.ResolveRegion(apiURL, cmd.Flags().Changed("api-url"))
-		trackURL = client.TrackBaseURLForRegion(region)
-	}
-	trackURL = strings.TrimRight(trackURL, "/")
+	// Resolve track API base URL: explicit --api-url override, CIO_TRACK_URL env
+	// var, or derived from the active profile's region / base URL.
+	apiURL, _ := cmd.Flags().GetString("api-url")
+	trackURL := strings.TrimRight(
+		client.ResolveTrackBaseURL(apiURL, cmd.Flags().Changed("api-url")),
+		"/",
+	)
 
 	timeout, _ := cmd.Flags().GetDuration("timeout")
 
