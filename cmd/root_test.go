@@ -44,25 +44,26 @@ func TestSetVersionIgnoresEmptyVersion(t *testing.T) {
 	}
 }
 
-func TestFileBinding(t *testing.T) {
+func TestResolveArgFileRefs(t *testing.T) {
 	dir := t.TempDir()
-	raw := filepath.Join(dir, "body.txt")
-	if err := os.WriteFile(raw, []byte(`<x>Hi "there"`), 0o600); err != nil {
+	body := filepath.Join(dir, "body.txt")
+	if err := os.WriteFile(body, []byte(`<x>Hi "there"`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := fileBinding("rawfile", "html="+raw)
+	got, err := resolveArgFileRefs("arg", []string{"name=literal", "html=@" + body})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if want := `html=<x>Hi "there"`; got != want {
-		t.Errorf("binding mismatch:\n want: %q\n got:  %q", want, got)
+	want := []string{"name=literal", `html=<x>Hi "there"`}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("mismatch:\n want: %q\n got:  %q", want, got)
 	}
 
-	if _, err := fileBinding("rawfile", "noequals"); err == nil {
-		t.Error("expected error for missing =")
-	}
-	if _, err := fileBinding("slurpfile", "x="+filepath.Join(dir, "missing.json")); err == nil {
+	if _, err := resolveArgFileRefs("arg", []string{"x=@" + filepath.Join(dir, "missing")}); err == nil {
 		t.Error("expected error for missing file")
+	}
+	if _, err := resolveArgFileRefs("arg", []string{"x=@"}); err == nil {
+		t.Error("expected error for empty @ path")
 	}
 }

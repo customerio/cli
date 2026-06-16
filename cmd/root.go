@@ -69,10 +69,8 @@ func init() {
 	flags.String("params", "", "Query parameters as JSON, converted to query string for GET")
 	flags.String("jq", "", "jq expression filter (via gojq)")
 	flags.BoolP("raw-output", "r", false, "Print string results unquoted, like jq -r (no external jq needed)")
-	flags.StringArray("arg", nil, "Bind a string variable for --json's jq program: --arg name=value (repeatable). Makes --json a jq -n program — no external jq needed")
-	flags.StringArray("argjson", nil, "Bind a JSON variable for --json's jq program: --argjson name=<json> (repeatable)")
-	flags.StringArray("rawfile", nil, "Bind a file's contents as a string variable for --json: --rawfile name=path (repeatable)")
-	flags.StringArray("slurpfile", nil, "Bind a file's JSON contents as a variable for --json: --slurpfile name=path (repeatable)")
+	flags.StringArray("arg", nil, "Bind a string variable for --json's jq program: --arg name=value, or name=@file to read the value from a file (repeatable). Makes --json a jq -n program — no external jq needed")
+	flags.StringArray("argjson", nil, "Bind a JSON variable for --json's jq program: --argjson name=<json>, or name=@file (repeatable)")
 	flags.Bool("dry-run", false, "Validate and print request, don't execute")
 	flags.Bool("read-only", false, "Request a read-only session (scope=read_only); only GET requests are permitted")
 	flags.StringSlice("scope", nil, "Additional OAuth scope(s) to request during token exchange")
@@ -130,30 +128,20 @@ func init() {
 			// When --arg/--argjson are present, --json is a jq program (jq -n
 			// style): evaluate it with those bindings, via the bundled gojq, to
 			// build the body. Lets callers embed quoted/Liquid/multi-line values
-			// without external jq or shell escaping.
+			// without external jq or shell escaping. A binding value of @path
+			// reads the value from a file (as --json does), handy for a large
+			// body like compiled HTML.
 			argVals, _ := cmd.Flags().GetStringArray("arg")
 			argjsonVals, _ := cmd.Flags().GetStringArray("argjson")
-
-			// --rawfile name=path binds a file's contents as a string variable;
-			// --slurpfile binds its JSON contents. Resolve them into the same
-			// bindings BuildJSON already understands.
-			rawfiles, _ := cmd.Flags().GetStringArray("rawfile")
-			slurpfiles, _ := cmd.Flags().GetStringArray("slurpfile")
-			for _, spec := range rawfiles {
-				binding, ferr := fileBinding("rawfile", spec)
-				if ferr != nil {
-					output.PrintError(output.CodeValidationError, ferr.Error(), map[string]string{"flag": "--rawfile"})
-					return ferr
-				}
-				argVals = append(argVals, binding)
+			argVals, err = resolveArgFileRefs("arg", argVals)
+			if err != nil {
+				output.PrintError(output.CodeValidationError, err.Error(), map[string]string{"flag": "--arg"})
+				return err
 			}
-			for _, spec := range slurpfiles {
-				binding, ferr := fileBinding("slurpfile", spec)
-				if ferr != nil {
-					output.PrintError(output.CodeValidationError, ferr.Error(), map[string]string{"flag": "--slurpfile"})
-					return ferr
-				}
-				argjsonVals = append(argjsonVals, binding)
+			argjsonVals, err = resolveArgFileRefs("argjson", argjsonVals)
+			if err != nil {
+				output.PrintError(output.CodeValidationError, err.Error(), map[string]string{"flag": "--argjson"})
+				return err
 			}
 
 			if len(argVals) > 0 || len(argjsonVals) > 0 {
@@ -342,20 +330,31 @@ func resolveJSONFlag(value string, stdin io.Reader) (string, error) {
 	return string(data), nil
 }
 
-// fileBinding resolves a "name=path" spec for --rawfile / --slurpfile into the
-// "name=value" binding BuildJSON consumes, reading the file's contents as the
-// value. The value's own "=" or newlines are preserved (BuildJSON splits on the
-// first "=" only).
-func fileBinding(flag, spec string) (string, error) {
-	name, path, found := strings.Cut(spec, "=")
-	if !found || name == "" {
-		return "", fmt.Errorf("--%s expects name=path, got %q", flag, spec)
+// resolveArgFileRefs expands "name=@path" bindings for --arg / --argjson: the
+// value is read from the file (mirroring --json's @file), so a large value like
+// a compiled HTML body can come straight from disk. A plain "name=value" — or a
+// malformed binding, which BuildJSON reports — is returned unchanged.
+func resolveArgFileRefs(flag string, bindings []string) ([]string, error) {
+	out := make([]string, 0, len(bindings))
+	for _, kv := range bindings {
+		name, value, found := strings.Cut(kv, "=")
+		if !found || name == "" {
+			out = append(out, kv) // let BuildJSON produce the canonical error
+			continue
+		}
+		if path, ok := strings.CutPrefix(value, "@"); ok {
+			if path == "" {
+				return nil, fmt.Errorf("--%s %s=@: missing filename after @", flag, name)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil, fmt.Errorf("--%s %s: %w", flag, name, err)
+			}
+			value = string(data)
+		}
+		out = append(out, name+"="+value)
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("--%s %s: %w", flag, name, err)
-	}
-	return name + "=" + string(data), nil
+	return out, nil
 }
 
 // Execute runs the root command.
