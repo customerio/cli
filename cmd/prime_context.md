@@ -99,10 +99,8 @@ cio skills read design-studio/nodes.md  # node creation, component markup
 | `--json <payload>` | JSON request body (`@filename` / `-` for stdin). With `--arg`/`--argjson` present, it is evaluated as a jq program that builds the body. |
 | `--jq <expr>` | Filter output with a jq expression (bundled gojq) |
 | `-r, --raw-output` | With `--jq`, print string results unquoted, like `jq -r` (no external jq) |
-| `--arg <name=value>` | Bind a string variable for the `--json` jq program (repeatable) |
-| `--argjson <name=json>` | Bind a JSON variable for the `--json` jq program (repeatable) |
-| `--rawfile <name=path>` | Bind a file's contents as a string variable for `--json` (repeatable) |
-| `--slurpfile <name=path>` | Bind a file's JSON contents as a variable for `--json` (repeatable) |
+| `--arg <name=value>` | Bind a string variable for the `--json` jq program; `name=@file` reads the value from a file (repeatable) |
+| `--argjson <name=json>` | Bind a JSON variable for the `--json` jq program; `name=@file` also works (repeatable) |
 | `-X, --method` | HTTP method override (default: GET, or POST if `--json` is provided) |
 | `--dry-run` | Validate and print the request without executing |
 | `--read-only` | Request a read-only session; only GET requests are permitted |
