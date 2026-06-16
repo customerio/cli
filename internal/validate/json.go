@@ -13,6 +13,12 @@ func ValidateJSONPayload(raw string) (json.RawMessage, error) {
 		return nil, &JSONValidationError{Reason: "JSON payload must not be empty"}
 	}
 
+	// Validate UTF-8 explicitly. The payload is sent to the API verbatim, and
+	// json.Unmarshal does NOT reject invalid UTF-8 inside string values — for a
+	// json.RawMessage it copies the bytes through unchanged — so this scan is
+	// what guarantees the bytes we send are valid UTF-8. It also rejects
+	// unescaped control characters (other than \n, \r, \t); escaped control
+	// characters (\n, \t, \r, \uXXXX) are valid JSON and pass through.
 	for i := 0; i < len(raw); {
 		r, size := utf8.DecodeRuneInString(raw[i:])
 		if r == utf8.RuneError && size <= 1 {
@@ -22,7 +28,7 @@ func ValidateJSONPayload(raw string) (json.RawMessage, error) {
 		}
 		if r < 0x20 && r != '\n' && r != '\r' && r != '\t' {
 			return nil, &JSONValidationError{
-				Reason: fmt.Sprintf("JSON payload contains control character at byte position %d (U+%04X)", i, r),
+				Reason: fmt.Sprintf("JSON payload contains an unescaped control character at byte position %d (U+%04X)", i, r),
 			}
 		}
 		i += size
@@ -42,54 +48,10 @@ func ValidateJSONPayload(raw string) (json.RawMessage, error) {
 		}
 	}
 
-	if err := checkControlCharsInStrings(parsed); err != nil {
-		return nil, err
-	}
-
+	// parsed is the raw bytes verbatim, already confirmed valid UTF-8 by the
+	// scan above. Escaped control characters (\n, \t, \r, \uXXXX) remain — they
+	// are valid JSON and required for multi-line content such as template bodies.
 	return parsed, nil
-}
-
-func checkControlCharsInStrings(data json.RawMessage) error {
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(data, &obj); err == nil {
-		for key, val := range obj {
-			if err := stringHasControlChars(key); err != nil {
-				return err
-			}
-			if err := checkControlCharsInStrings(val); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	var arr []json.RawMessage
-	if err := json.Unmarshal(data, &arr); err == nil {
-		for _, val := range arr {
-			if err := checkControlCharsInStrings(val); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	var s string
-	if err := json.Unmarshal(data, &s); err == nil {
-		return stringHasControlChars(s)
-	}
-
-	return nil
-}
-
-func stringHasControlChars(s string) error {
-	for i, r := range s {
-		if r < 0x20 {
-			return &JSONValidationError{
-				Reason: fmt.Sprintf("JSON string value contains control character at position %d (U+%04X)", i, r),
-			}
-		}
-	}
-	return nil
 }
 
 // ValidateStringValue rejects string values containing control characters

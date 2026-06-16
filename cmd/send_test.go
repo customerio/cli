@@ -270,6 +270,36 @@ func TestSend_DryRun(t *testing.T) {
 	}
 }
 
+// TestSend_DryRun_APIURLOverridesTrackHost covers SELF-48: an explicit
+// --api-url must direct the track send at that host, not production.
+func TestSend_DryRun_APIURLOverridesTrackHost(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CIO_TOKEN", "sa_live_test123")
+	t.Setenv("CIO_ACCESS_TOKEN", "")
+	t.Setenv("CIO_TRACK_URL", "")
+
+	stdout, _, err := executeCommand("send", "email",
+		"--environment-id", "71981",
+		"--token", "sa_live_test123",
+		"--to", "test@example.com",
+		"--from", "noreply@example.com",
+		"--subject", "Test",
+		"--body", "hello",
+		"--api-url", "https://track.example.test",
+		"--dry-run")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\nstdout: %s", err, stdout)
+	}
+	if result["url"] != "https://track.example.test/v1/send/email" {
+		t.Errorf("expected overridden track URL, got %v", result["url"])
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Validation errors
 // ---------------------------------------------------------------------------
