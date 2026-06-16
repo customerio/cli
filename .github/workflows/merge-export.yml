@@ -1,0 +1,73 @@
+name: Merge public export PR
+
+# Merges the Copybara-generated public-export PR into `main` on demand.
+#
+# This is a MANUAL step (workflow_dispatch). Merges to cio-cli keep refreshing
+# the `copybara/public-export` PR (changes accumulate); a human triggers this
+# workflow when ready to push the accumulated export through to public `main`,
+# then triggers the release workflow separately.
+#
+# Destination `main` still changes only through this PR — the export contract is
+# preserved. Guarded to the export bot's PR on the export branch, and to a green
+# CI run on the PR's current head before merging.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge-export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge the export PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          # The automation identity that authors the export PR.
+          EXPORT_BOT: ami-ci
+          EXPORT_BRANCH: copybara/public-export
+        run: |
+          set -euo pipefail
+
+          pr_json="$(gh pr list \
+            --head "$EXPORT_BRANCH" --base main --state open \
+            --json number,author,headRefOid \
+            --jq '.[0] // empty')"
+
+          if [[ -z "$pr_json" ]]; then
+            echo "No open ${EXPORT_BRANCH} PR found; nothing to merge."
+            exit 0
+          fi
+
+          number="$(jq -r '.number' <<<"$pr_json")"
+          author="$(jq -r '.author.login' <<<"$pr_json")"
+          head="$(jq -r '.headRefOid' <<<"$pr_json")"
+
+          if [[ "$author" != "$EXPORT_BOT" ]]; then
+            echo "PR #${number} author is '${author}', not the export bot; refusing to merge."
+            exit 1
+          fi
+
+          # Require the CI workflow to be green on the PR's current head before
+          # merging. With a manual trigger there is no "run that just passed", so
+          # we assert the latest completed CI run for this exact commit concluded
+          # success — preserving the "never merge an unvalidated commit" guard from
+          # the auto-merge version (which keyed off workflows: ["CI"]).
+          ci_conclusion="$(gh api \
+            "repos/${GH_REPO}/actions/workflows/ci.yml/runs?head_sha=${head}" \
+            --jq 'first(.workflow_runs[] | select(.status == "completed") | .conclusion) // empty')"
+
+          if [[ "$ci_conclusion" != "success" ]]; then
+            echo "CI is not green on PR #${number} head ${head} (latest completed CI conclusion: '${ci_conclusion:-none}'); refusing to merge."
+            exit 1
+          fi
+
+          # Rebase merge: main's ruleset enforces linear history and allows the
+          # rebase method only. The CioCliPublicExport-RevId trailer is carried
+          # in the commit message and survives the rebase, so Copybara last-rev
+          # tracking is unaffected — every prior export landed on main this way.
+          echo "Merging export PR #${number} (${head})."
+          gh pr merge "$number" --rebase
