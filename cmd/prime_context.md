@@ -4,7 +4,7 @@ You have access to `cio`, an agent-first CLI for Customer.io. Most commands retu
 
 1. Unless you are intentionally using `cio prime`, assume command output is JSON. Parse it, don't regex it.
 2. Path placeholders are passed as strings. Many IDs are numeric, but profile/object IDs can be string values such as `eea50d000102`; let the API own endpoint-specific ID semantics.
-3. ALWAYS use `--jq` on read calls to limit output and save tokens.
+3. ALWAYS use `--jq` on read calls to limit output and save tokens. Add `-r` to print a raw string (an id, token, or body); use `--arg`/`--argjson` to build a request body with embedded values. The bundled gojq covers both, so you never need an external `jq`.
 4. ALWAYS use `--dry-run` before any mutating call to preview what will be sent.
 5. Read the relevant skill (`cio skills read`) BEFORE making complex API calls — the API has non-obvious required fields, multi-step workflows, and silent failures.
 
@@ -96,8 +96,13 @@ cio skills read design-studio/nodes.md  # node creation, component markup
 | Flag | Description |
 |------|-------------|
 | `--params <json>` | Path + query parameters as JSON object |
-| `--json <payload>` | JSON request body, `@filename` to read from a file, or `-` to read from stdin |
-| `--jq <expr>` | Filter output with jq expressions (via gojq) |
+| `--json <payload>` | JSON request body (`@filename` / `-` for stdin). With `--arg`/`--argjson` present, it is evaluated as a jq program that builds the body. |
+| `--jq <expr>` | Filter output with a jq expression (bundled gojq) |
+| `-r, --raw-output` | With `--jq`, print string results unquoted, like `jq -r` (no external jq) |
+| `--arg <name=value>` | Bind a string variable for the `--json` jq program (repeatable) |
+| `--argjson <name=json>` | Bind a JSON variable for the `--json` jq program (repeatable) |
+| `--rawfile <name=path>` | Bind a file's contents as a string variable for `--json` (repeatable) |
+| `--slurpfile <name=path>` | Bind a file's JSON contents as a variable for `--json` (repeatable) |
 | `-X, --method` | HTTP method override (default: GET, or POST if `--json` is provided) |
 | `--dry-run` | Validate and print the request without executing |
 | `--read-only` | Request a read-only session; only GET requests are permitted |
@@ -140,10 +145,16 @@ cio api /v1/environments/{environment_id}/segments \
   --params '{"environment_id": "1"}' \
   --page-all --jq '{id, name}'
 
-# Pipe the body in via stdin (avoids shell-quoting a large payload)
-echo "$BODY" | cio api /v1/environments/{environment_id}/campaigns \
+# Build a body with embedded values — --arg binds the string, the --json jq
+# program references it; no shell escaping, no external jq
+cio api /v1/environments/{environment_id}/campaigns -X POST \
   --params '{"environment_id": "1"}' \
-  --json -
+  --arg name="Welcome, with a comma" \
+  --json '{campaign:{name:$name,type:"none"}}' --dry-run
+
+# Extract a raw scalar (no surrounding quotes) with -r
+ID=$(cio api /v1/environments/{environment_id}/campaigns \
+  --params '{"environment_id": "1"}' --jq '.campaigns[0].id' -r)
 ```
 
 ## Filtering Large Responses
