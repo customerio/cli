@@ -373,7 +373,7 @@ Token resolution order:
 
 		jq := GetJQFlag(cmd)
 		data, _ := json.Marshal(statusResult)
-		return output.FprintProcess(cmd.OutOrStdout(), json.RawMessage(data), jq)
+		return output.FprintProcess(cmd.OutOrStdout(), json.RawMessage(data), jq, GetRawFlag(cmd))
 	},
 }
 
@@ -498,7 +498,7 @@ func runAuthSignupVerify(cmd *cobra.Command, args []string) error {
 	// the response so the caller can capture the token manually.
 	saveErr := saveSignupCredentials(result, body, baseURL)
 
-	if err := output.FprintProcess(cmd.OutOrStdout(), result, GetJQFlag(cmd)); err != nil {
+	if err := output.FprintProcess(cmd.OutOrStdout(), result, GetJQFlag(cmd), GetRawFlag(cmd)); err != nil {
 		return err
 	}
 	if saveErr != nil {
@@ -597,7 +597,7 @@ func runSignupRequest(cmd *cobra.Command, path string) error {
 		return handleAPIError(err)
 	}
 
-	return output.FprintProcess(cmd.OutOrStdout(), result, GetJQFlag(cmd))
+	return output.FprintProcess(cmd.OutOrStdout(), result, GetJQFlag(cmd), GetRawFlag(cmd))
 }
 
 // loadStoredServiceAccountToken reads the saved sa_live_ token from

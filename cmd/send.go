@@ -330,7 +330,7 @@ func runTrackSend(cmd *cobra.Command, sendPath string, body json.RawMessage) err
 
 	watch, _ := cmd.Flags().GetBool("watch")
 	if !watch {
-		return output.FprintProcess(cmd.OutOrStdout(), result, jq)
+		return output.FprintProcess(cmd.OutOrStdout(), result, jq, GetRawFlag(cmd))
 	}
 
 	// Extract the delivery_id so we can poll its status.
@@ -416,7 +416,7 @@ func watchDelivery(cmd *cobra.Command, envID, deliveryID string) error {
 			}
 			if terminal, state := isTerminalDelivery(result); terminal {
 				fmt.Fprintf(stderr, " email %s!\n", state)
-				return output.FprintProcess(cmd.OutOrStdout(), result, jq)
+				return output.FprintProcess(cmd.OutOrStdout(), result, jq, GetRawFlag(cmd))
 			}
 			fmt.Fprint(stderr, ".")
 		}

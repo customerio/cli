@@ -151,7 +151,7 @@ func runAPI(cmd *cobra.Command, args []string) error {
 		return handleAPIError(err)
 	}
 
-	return output.FprintProcess(cmd.OutOrStdout(), result, jq)
+	return output.FprintProcess(cmd.OutOrStdout(), result, jq, GetRawFlag(cmd))
 }
 
 // resolveMethod determines the HTTP method from the flag or defaults.

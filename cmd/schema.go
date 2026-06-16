@@ -336,5 +336,5 @@ func schemaOutput(cmd *cobra.Command, v any) error {
 		return err
 	}
 	jq := GetJQFlag(cmd)
-	return output.FprintProcess(cmd.OutOrStdout(), json.RawMessage(data), jq)
+	return output.FprintProcess(cmd.OutOrStdout(), json.RawMessage(data), jq, GetRawFlag(cmd))
 }

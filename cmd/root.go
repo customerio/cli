@@ -68,6 +68,7 @@ func init() {
 	flags.String("json", "", "Raw JSON request body, @filename to read from a file, or - to read from stdin")
 	flags.String("params", "", "Query parameters as JSON, converted to query string for GET")
 	flags.String("jq", "", "jq expression filter (via gojq)")
+	flags.BoolP("raw-output", "r", false, "Print string results unquoted, like jq -r (no external jq needed)")
 	flags.Bool("dry-run", false, "Validate and print request, don't execute")
 	flags.Bool("read-only", false, "Request a read-only session (scope=read_only); only GET requests are permitted")
 	flags.StringSlice("scope", nil, "Additional OAuth scope(s) to request during token exchange")
@@ -225,6 +226,12 @@ func clientFromCmd(cmd *cobra.Command) *client.Client {
 func GetJQFlag(cmd *cobra.Command) string {
 	jq, _ := cmd.Flags().GetString("jq")
 	return jq
+}
+
+// GetRawFlag returns the --raw-output flag value.
+func GetRawFlag(cmd *cobra.Command) bool {
+	raw, _ := cmd.Flags().GetBool("raw-output")
+	return raw
 }
 
 // GetPaginationFlags returns the --page, --limit, and --page-all flag values.
