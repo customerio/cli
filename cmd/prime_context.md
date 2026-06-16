@@ -16,7 +16,9 @@ Auth uses service account tokens exchanged for JWTs. Check status with:
 cio auth status
 ```
 
-If auth fails, ask the user to run `cio auth login` and paste their `sa_live_` token.
+If auth fails or there is no token yet, read `cio skills read cli/auth.md`
+and follow its login flow. Never have the user paste a token into the
+conversation or pass one as a shell argument.
 
 ## Profiles
 
@@ -74,6 +76,7 @@ Skills provide behavioral guidance, multi-step workflows, and gotchas that are N
 cio skills                              # list available skills
 cio skills read fly-api                 # Customer.io API guidance — routes to sub-files
 cio skills read fly-api/campaigns.md    # campaign workflows, edge wiring, gotchas
+cio skills read cli                     # skills unique to the CLI (onboarding, auth/login, integration, go-live)
 cio skills read design-studio           # Design Studio email creation workflow
 cio skills read design-studio/nodes.md  # node creation, component markup
 ```
