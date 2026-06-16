@@ -30,8 +30,7 @@ Use runtime references instead of copying large playbooks into this skill:
 
 - `cio schema` for commands, flags, generic API routes, and payload shapes.
 - `cio skills` to list currently available Customer.io reference skills.
-- `cio skills read cio` for builder onboarding, sandbox, first integration,
-  transactional proof, billing activation checks, and go-live playbooks.
+- `cio skills read cli` for skills unique to the CLI (auth/login, integration, onboarding/new user setup); read it for the full index.
 - `cio skills read <skill>` for the specific service-hosted reference needed.
 - `cio api <path>` for API coverage that is not wrapped by a bespoke command.
 
@@ -39,7 +38,7 @@ Common routing:
 
 - Builder/startup setup, signup, sandbox, first app integration,
   transactional proof, billing activation checks, and go-live start with
-  `cio prime` and `cio skills read cio`.
+  `cio prime` and `cio skills read cli`.
 - Existing Journeys resources such as campaigns, segments, templates,
   customers, newsletters, and subscription topics should use
   `cio skills read fly-api`.
