@@ -2,7 +2,7 @@
 
 const assert = require("assert");
 const { normalizeVersion, bumpVersion } = require("./release-version");
-const { validateDispatch, resolveVersion } = require("./release-workflow");
+const { effectiveRef, validateDispatch, resolveVersion } = require("./release-workflow");
 
 function env(overrides) {
   return {
@@ -128,6 +128,57 @@ assert.doesNotThrow(() =>
 assert.throws(
   () => validateDispatch(env({ RESUME_EXISTING_NPM: "true", GITHUB_REF: "refs/heads/main" })),
   /recovery must be dispatched/
+);
+
+// effectiveRef: returns refInput when set, otherwise branch from githubRef
+assert.strictEqual(
+  effectiveRef({ refInput: "my-branch", githubRef: "refs/heads/main" }),
+  "my-branch"
+);
+assert.strictEqual(
+  effectiveRef({ refInput: "", githubRef: "refs/heads/main" }),
+  "main"
+);
+assert.strictEqual(
+  effectiveRef({ refInput: "", githubRef: "refs/tags/v1.2.3" }),
+  null
+);
+
+// ref input: stable version + non-main ref must fail
+assert.throws(
+  () => validateDispatch(env({ REF_INPUT: "my-branch" })),
+  /stable releases require ref 'main'/
+);
+// ref input: stable version + main ref is fine
+assert.doesNotThrow(() =>
+  validateDispatch(env({ REF_INPUT: "main" }))
+);
+// ref input: stable version + empty ref (default) from main is fine
+assert.doesNotThrow(() =>
+  validateDispatch(env({ REF_INPUT: "" }))
+);
+// ref input: prerelease + non-main ref is fine
+assert.doesNotThrow(() =>
+  validateDispatch(env({
+    VERSION_INPUT: "1.2.3-alpha.1",
+    REF_INPUT: "my-branch",
+  }))
+);
+// dispatch from non-main branch (via dropdown) without ref input: stable version must fail
+assert.throws(
+  () => validateDispatch(env({
+    GITHUB_REF: "refs/heads/feature-branch",
+    REF_INPUT: "",
+  })),
+  /stable releases require ref 'main'/
+);
+// dispatch from non-main branch (via dropdown) with prerelease: fine
+assert.doesNotThrow(() =>
+  validateDispatch(env({
+    VERSION_INPUT: "1.2.3-alpha.1",
+    GITHUB_REF: "refs/heads/feature-branch",
+    REF_INPUT: "",
+  }))
 );
 
 // bumpVersion: level handling and v-prefix tolerance
