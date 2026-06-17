@@ -49,6 +49,13 @@ function validateDispatch(env = process.env) {
     return ctx;
   }
 
+  if (ctx.prerelease) {
+    if (!ctx.githubRef.startsWith("refs/heads/") && ctx.githubRef !== ctx.tagRef) {
+      fail(`prerelease must be dispatched from a branch or ${ctx.tagRef}`);
+    }
+    return ctx;
+  }
+
   if (ctx.githubRef !== "refs/heads/main" && ctx.githubRef !== ctx.tagRef) {
     fail(`real release must be dispatched from refs/heads/main or ${ctx.tagRef}`);
   }
@@ -166,15 +173,23 @@ function assertLocalTagDoesNotExist(tag) {
 function tagAndDispatch(env = process.env) {
   const ctx = validateDispatch(env);
 
-  if (ctx.dryRun || ctx.resumeExistingNpm || ctx.githubRef !== "refs/heads/main") {
-    fail("tag-and-dispatch is only valid for real releases dispatched from refs/heads/main");
+  if (ctx.dryRun || ctx.resumeExistingNpm) {
+    fail("tag-and-dispatch is only valid for real releases dispatched from a branch");
+  }
+  if (!ctx.githubRef.startsWith("refs/heads/")) {
+    fail("tag-and-dispatch must be dispatched from a branch");
+  }
+  if (!ctx.prerelease && ctx.githubRef !== "refs/heads/main") {
+    fail("stable releases must be dispatched from refs/heads/main");
   }
   if (!ctx.githubRepository) {
     fail("GITHUB_REPOSITORY must be set");
   }
 
   assertCheckoutSha(ctx);
-  assertOriginMainSha(ctx);
+  if (!ctx.prerelease) {
+    assertOriginMainSha(ctx);
+  }
   assertLocalTagDoesNotExist(ctx.tag);
   if (remoteTagExists(ctx.tag)) {
     fail(`tag ${ctx.tag} already exists on origin`);
