@@ -83,6 +83,8 @@ func init() {
 	flags.Bool("page-all", false, "Auto-paginate, emit NDJSON")
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		maybeHintSkillsInstall(cmd)
+
 		// Select the active profile before any credential access so that auth
 		// commands and credential lookups all resolve against the same profile.
 		if profile, _ := cmd.Flags().GetString("profile"); profile != "" {
