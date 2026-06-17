@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version, e.g. 1.2.3 (blank = auto-bump the latest tag)"
+        description: "Release version, e.g. 1.2.3 or 1.2.3-alpha.1 (blank = auto-bump the latest tag)"
         required: false
         default: ""
         type: string
@@ -71,7 +71,7 @@ jobs:
       ${{
         !inputs.dry_run &&
         !inputs.resume_existing_npm &&
-        github.ref == 'refs/heads/main'
+        startsWith(github.ref, 'refs/heads/')
       }}
     runs-on: ubuntu-latest
     permissions:
