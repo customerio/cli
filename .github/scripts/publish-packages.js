@@ -63,6 +63,7 @@ try {
 }
 
 const version = normalizedVersion.npmVersion;
+const distTag = normalizedVersion.distTag;
 const rootPackagePath = path.join(ROOT, "package.json");
 const rootPackage = JSON.parse(fs.readFileSync(rootPackagePath, "utf8"));
 const platforms = rootPackage.customerioCli?.platforms || [];
@@ -183,6 +184,9 @@ function publish(packageDir) {
   const args = dryRun
     ? ["publish", "--dry-run", "--access", "public", "--registry", registry.url]
     : ["publish", "--access", "public", "--registry", registry.url];
+  if (distTag !== "latest") {
+    args.push("--tag", distTag);
+  }
   args.push(...registry.publishArgs);
   execFileSync("npm", args, { cwd: packageDir, stdio: "inherit" });
 }

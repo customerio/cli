@@ -20,14 +20,39 @@ assert.deepStrictEqual(normalizeVersion("1.2.3"), {
   npmVersion: "1.2.3",
   tag: "v1.2.3",
   tagRef: "refs/tags/v1.2.3",
+  prerelease: null,
+  distTag: "latest",
 });
 assert.deepStrictEqual(normalizeVersion("v1.2.3"), {
   npmVersion: "1.2.3",
   tag: "v1.2.3",
   tagRef: "refs/tags/v1.2.3",
+  prerelease: null,
+  distTag: "latest",
+});
+assert.deepStrictEqual(normalizeVersion("1.2.3-alpha.1"), {
+  npmVersion: "1.2.3-alpha.1",
+  tag: "v1.2.3-alpha.1",
+  tagRef: "refs/tags/v1.2.3-alpha.1",
+  prerelease: "alpha.1",
+  distTag: "alpha",
+});
+assert.deepStrictEqual(normalizeVersion("v1.2.3-beta.2"), {
+  npmVersion: "1.2.3-beta.2",
+  tag: "v1.2.3-beta.2",
+  tagRef: "refs/tags/v1.2.3-beta.2",
+  prerelease: "beta.2",
+  distTag: "beta",
+});
+assert.deepStrictEqual(normalizeVersion("1.0.0-rc.1"), {
+  npmVersion: "1.0.0-rc.1",
+  tag: "v1.0.0-rc.1",
+  tagRef: "refs/tags/v1.0.0-rc.1",
+  prerelease: "rc.1",
+  distTag: "rc",
 });
 
-for (const version of ["v1", "1.2", "version=foo", "1.2.3-beta.1", "1.2.3+build.1"]) {
+for (const version of ["v1", "1.2", "version=foo", "1.2.3+build.1"]) {
   assert.throws(() => normalizeVersion(version), /version must use/);
 }
 
@@ -72,6 +97,27 @@ assert.throws(
   /real release must be dispatched/
 );
 
+// prerelease: allowed from any branch or matching tag
+assert.doesNotThrow(() =>
+  validateDispatch(env({
+    VERSION_INPUT: "1.2.3-alpha.1",
+    GITHUB_REF: "refs/heads/my-feature-branch",
+  }))
+);
+assert.doesNotThrow(() =>
+  validateDispatch(env({
+    VERSION_INPUT: "1.2.3-alpha.1",
+    GITHUB_REF: "refs/tags/v1.2.3-alpha.1",
+  }))
+);
+assert.throws(
+  () => validateDispatch(env({
+    VERSION_INPUT: "1.2.3-alpha.1",
+    GITHUB_REF: "refs/tags/v1.2.3-alpha.2",
+  })),
+  /prerelease must be dispatched/
+);
+
 assert.doesNotThrow(() =>
   validateDispatch(env({
     DRY_RUN: "false",
@@ -100,6 +146,15 @@ assert.deepStrictEqual(resolveVersion({ VERSION_INPUT: "v1.2.3" }), {
   npmVersion: "1.2.3",
   tag: "v1.2.3",
   tagRef: "refs/tags/v1.2.3",
+  prerelease: null,
+  distTag: "latest",
+});
+assert.deepStrictEqual(resolveVersion({ VERSION_INPUT: "1.0.0-alpha.1" }), {
+  npmVersion: "1.0.0-alpha.1",
+  tag: "v1.0.0-alpha.1",
+  tagRef: "refs/tags/v1.0.0-alpha.1",
+  prerelease: "alpha.1",
+  distTag: "alpha",
 });
 
 console.log("release-workflow tests passed");
