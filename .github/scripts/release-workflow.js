@@ -26,14 +26,7 @@ function releaseContext(env = process.env) {
     githubRef: env.GITHUB_REF || "",
     githubRepository: env.GITHUB_REPOSITORY || "",
     githubSha: env.GITHUB_SHA || "",
-    refInput: env.REF_INPUT || "",
   };
-}
-
-function effectiveRef(ctx) {
-  if (ctx.refInput) return ctx.refInput;
-  const match = ctx.githubRef.match(/^refs\/heads\/(.+)$/);
-  return match ? match[1] : null;
 }
 
 function validateDispatch(env = process.env) {
@@ -54,11 +47,6 @@ function validateDispatch(env = process.env) {
       fail(`package publishing recovery must be dispatched from ${ctx.tagRef}`);
     }
     return ctx;
-  }
-
-  const ref = effectiveRef(ctx);
-  if (!ctx.prerelease && ref && ref !== "main") {
-    fail(`stable releases require ref 'main'; use a prerelease version for branch '${ref}'`);
   }
 
   if (ctx.prerelease) {
@@ -191,27 +179,23 @@ function tagAndDispatch(env = process.env) {
   if (!ctx.githubRef.startsWith("refs/heads/")) {
     fail("tag-and-dispatch must be dispatched from a branch");
   }
+  if (!ctx.prerelease && ctx.githubRef !== "refs/heads/main") {
+    fail("stable releases must be dispatched from refs/heads/main");
+  }
   if (!ctx.githubRepository) {
     fail("GITHUB_REPOSITORY must be set");
   }
 
-  const isCustomRef = Boolean(ctx.refInput) && ctx.refInput !== "main";
-  const commitSha = isCustomRef
-    ? read("git", ["rev-parse", "HEAD"])
-    : ctx.githubSha;
-
-  if (!isCustomRef) {
-    assertCheckoutSha(ctx);
-    if (!ctx.prerelease) {
-      assertOriginMainSha(ctx);
-    }
+  assertCheckoutSha(ctx);
+  if (!ctx.prerelease) {
+    assertOriginMainSha(ctx);
   }
   assertLocalTagDoesNotExist(ctx.tag);
   if (remoteTagExists(ctx.tag)) {
     fail(`tag ${ctx.tag} already exists on origin`);
   }
 
-  run("git", ["tag", ctx.tag, commitSha]);
+  run("git", ["tag", ctx.tag, ctx.githubSha]);
   run("git", ["push", "origin", `refs/tags/${ctx.tag}`]);
   run("gh", [
     "workflow",
@@ -233,9 +217,7 @@ function tagAndDispatch(env = process.env) {
 function assertDispatchCheckout(env = process.env) {
   const ctx = validateDispatch(env);
 
-  if (!ctx.refInput || ctx.refInput === "main") {
-    assertCheckoutSha(ctx);
-  }
+  assertCheckoutSha(ctx);
   return ctx;
 }
 
@@ -327,7 +309,6 @@ if (require.main === module) {
 
 module.exports = {
   releaseContext,
-  effectiveRef,
   validateDispatch,
   latestTag,
   resolveVersion,

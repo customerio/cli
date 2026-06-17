@@ -1,18 +1,13 @@
 name: Release
 
 run-name: >-
-  ${{ inputs.dry_run && 'Release dry-run' || 'Release' }}${{ inputs.version && format(' {0}', inputs.version) || '' }}${{ inputs.ref && format(' (ref: {0})', inputs.ref) || '' }}
+  ${{ inputs.dry_run && 'Release dry-run' || 'Release' }}
 
 on:
   workflow_dispatch:
     inputs:
       version:
         description: "Release version, e.g. 1.2.3 or 1.2.3-alpha.1 (blank = auto-bump the latest tag)"
-        required: false
-        default: ""
-        type: string
-      ref:
-        description: "Branch to release from (default: dispatch branch). Non-main branches require a prerelease version."
         required: false
         default: ""
         type: string
@@ -54,7 +49,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Resolve release version
         id: resolve
@@ -68,7 +63,6 @@ jobs:
           VERSION_INPUT: ${{ steps.resolve.outputs.version }}
           DRY_RUN: ${{ inputs.dry_run }}
           RESUME_EXISTING_NPM: ${{ inputs.resume_existing_npm }}
-          REF_INPUT: ${{ inputs.ref }}
         run: node .github/scripts/release-workflow.js assert-dispatch-checkout
 
   tag_and_dispatch:
@@ -87,7 +81,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Create tag and dispatch release run
         env:
@@ -95,7 +89,6 @@ jobs:
           VERSION_INPUT: ${{ needs.validate_dispatch.outputs.version }}
           DRY_RUN: ${{ inputs.dry_run }}
           RESUME_EXISTING_NPM: ${{ inputs.resume_existing_npm }}
-          REF_INPUT: ${{ inputs.ref }}
         run: node .github/scripts/release-workflow.js tag-and-dispatch
 
   dry-run:
@@ -108,14 +101,13 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
-          ref: ${{ inputs.ref || github.sha }}
+          ref: ${{ github.sha }}
 
       - name: Assert checkout ref
         env:
           VERSION_INPUT: ${{ needs.validate_dispatch.outputs.version }}
           DRY_RUN: ${{ inputs.dry_run }}
           RESUME_EXISTING_NPM: ${{ inputs.resume_existing_npm }}
-          REF_INPUT: ${{ inputs.ref }}
         run: node .github/scripts/release-workflow.js assert-dispatch-checkout
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
