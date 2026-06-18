@@ -43,8 +43,9 @@ if (!existsSync(binPath)) {
   process.exit(0);
 }
 
-console.log("[cio postinstall] Running: cio skills install");
-const child = spawn(binPath, ["skills", "install"], {
+const scopeFlag = process.env.npm_config_global === "true" ? "--global" : "--project";
+console.log(`[cio postinstall] Running: cio skills install ${scopeFlag}`);
+const child = spawn(binPath, ["skills", "install", scopeFlag], {
   stdio: "inherit",
 });
 
