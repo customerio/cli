@@ -51,6 +51,12 @@ func domainServer(t *testing.T) *httptest.Server {
 			return
 		}
 
+		// DNS setup link endpoint — returns a short-lived handoff token.
+		if r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/dns_setup_link") {
+			_, _ = w.Write([]byte(`{"handoff_token":"test.handoff.token","expires_in":300}`))
+			return
+		}
+
 		// DNS check endpoint — returns canned verification results.
 		// Used by link_tracking verify; the "domain_auth" flow has moved to
 		// POST /domains/:id/verify below.
@@ -340,6 +346,13 @@ func TestDomains_AuthenticateConfigure_Automatic(t *testing.T) {
 	if !strings.Contains(url, "/cli/dns-setup#") {
 		t.Errorf("expected /cli/dns-setup# in stdout URL, got %v", url)
 	}
+	// The fragment must be exactly the handoff token from dns_setup_link — no
+	// DNS records embedded — so the link stays short. The page resolves the
+	// records by exchanging this token.
+	_, frag, ok := strings.Cut(url, "#")
+	if !ok || frag != "test.handoff.token" {
+		t.Errorf("expected fragment to be the handoff token, got %q", frag)
+	}
 }
 
 func TestDomains_AuthenticateConfigure_CustomUIURL(t *testing.T) {
@@ -362,6 +375,24 @@ func TestDomains_AuthenticateConfigure_CustomUIURL(t *testing.T) {
 
 	if !strings.Contains(stderr, "http://localhost:3000/cli/dns-setup#") {
 		t.Errorf("expected CIO_UI_URL override in stderr URL, got: %s", stderr)
+	}
+}
+
+func TestResolveUIBase(t *testing.T) {
+	t.Setenv("CIO_UI_URL", "")
+	// The app origin is derived from the API base by stripping the us./eu.
+	// region label, so a regional API host maps to its app host.
+	if got := resolveUIBase("https://us.api.example.com"); got != "https://api.example.com" {
+		t.Errorf("expected https://api.example.com, got %q", got)
+	}
+	// Production us. host maps to the bare fly app host.
+	if got := resolveUIBase("https://us.fly.customer.io"); got != "https://fly.customer.io" {
+		t.Errorf("expected https://fly.customer.io, got %q", got)
+	}
+	// CIO_UI_URL overrides everything.
+	t.Setenv("CIO_UI_URL", "http://localhost:3000/")
+	if got := resolveUIBase("https://us.api.example.com"); got != "http://localhost:3000" {
+		t.Errorf("expected CIO_UI_URL override, got %q", got)
 	}
 }
 
