@@ -43,11 +43,18 @@ if (!existsSync(binPath)) {
   process.exit(0);
 }
 
-const scopeFlag = process.env.npm_config_global === "true" ? "--global" : "--project";
+const isGlobal = process.env.npm_config_global === "true";
+const scopeFlag = isGlobal ? "--global" : "--project";
+const spawnOpts = { stdio: "inherit" };
+
+// For project installs, npm runs postinstall with cwd inside node_modules.
+// INIT_CWD is the directory where the user ran npm install (the project root).
+if (!isGlobal && process.env.INIT_CWD) {
+  spawnOpts.cwd = process.env.INIT_CWD;
+}
+
 console.log(`[cio postinstall] Running: cio skills install ${scopeFlag}`);
-const child = spawn(binPath, ["skills", "install", scopeFlag], {
-  stdio: "inherit",
-});
+const child = spawn(binPath, ["skills", "install", scopeFlag], spawnOpts);
 
 child.on("error", (err) => {
   console.log("[cio postinstall] Failed to run cio skills install:", err.message);
