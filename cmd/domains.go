@@ -97,10 +97,17 @@ func requireArg(name string) cobra.PositionalArgs {
 	}
 }
 
-// resolveUIBase returns the UI base URL from CIO_UI_URL or the default.
-func resolveUIBase() string {
+// resolveUIBase returns the app (UI) base URL for building handoff links.
+// It mirrors the cio auth login handoff: an explicit CIO_UI_URL override wins,
+// otherwise derive the app origin from the configured API base by stripping a
+// leading us./eu. region label (e.g. us.api.example.com -> api.example.com),
+// falling back to the production app.
+func resolveUIBase(apiBaseURL string) string {
 	if envURL := os.Getenv("CIO_UI_URL"); envURL != "" {
 		return strings.TrimRight(envURL, "/")
+	}
+	if origin := uiOriginFromAPIBase(apiBaseURL); origin != "" {
+		return origin
 	}
 	return "https://fly.customer.io"
 }

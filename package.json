@@ -5,8 +5,12 @@
   "bin": {
     "cio": ".npm/run.js"
   },
+  "scripts": {
+    "postinstall": "node .npm/postinstall.js"
+  },
   "files": [
     ".npm/run.js",
+    ".npm/postinstall.js",
     "LICENSE",
     "README.md"
   ],
