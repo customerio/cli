@@ -487,3 +487,72 @@ func TestLoadRegistryFromOpenAPI_ResolvesRequestBodyRefs(t *testing.T) {
 		t.Error("expected resolved schema to include 'name' property")
 	}
 }
+
+// TestLoadRegistryFromOpenAPI_ResolvesNestedPropertyRefs covers a $ref sitting
+// under a component's properties (e.g. a discriminated request whose payload is
+// nested one level down). The resolver must follow it, not leave a bare $ref.
+func TestLoadRegistryFromOpenAPI_ResolvesNestedPropertyRefs(t *testing.T) {
+	spec := `{
+		"openapi": "3.1.0",
+		"info": {"title": "Test", "version": "1.0.0"},
+		"components": {
+			"schemas": {
+				"UpdateThing": {
+					"type": "object",
+					"properties": {"detail": {"$ref": "#/components/schemas/Detail"}}
+				},
+				"Detail": {
+					"discriminator": {"propertyName": "update_type"},
+					"oneOf": [
+						{"type": "object", "properties": {"update_type": {"type": "string", "enum": ["main"]}, "name": {"type": "string"}}},
+						{"type": "object", "properties": {"update_type": {"type": "string", "enum": ["state"]}, "state": {"type": "string"}}}
+					]
+				}
+			}
+		},
+		"paths": {
+			"/v1/environments/{environment_id}/things/{id}": {
+				"put": {
+					"summary": "Update thing",
+					"parameters": [
+						{"name": "environment_id", "in": "path", "required": true, "schema": {"type": "string"}},
+						{"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}
+					],
+					"requestBody": {
+						"required": true,
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/UpdateThing"}}}
+					}
+				}
+			}
+		}
+	}`
+
+	reg, err := LoadRegistryFromOpenAPI([]byte(spec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	route := reg.FindRoute("things", "update")
+	if route == nil {
+		t.Fatal("things.update not found")
+	}
+
+	var obj map[string]any
+	if err := json.Unmarshal(route.RequestBodySchema, &obj); err != nil {
+		t.Fatal(err)
+	}
+	props, _ := obj["properties"].(map[string]any)
+	detail, ok := props["detail"].(map[string]any)
+	if !ok {
+		t.Fatal("expected 'detail' property in resolved body")
+	}
+	if _, isRef := detail["$ref"]; isRef {
+		t.Fatal("nested 'detail' $ref was not resolved")
+	}
+	branches, ok := detail["oneOf"].([]any)
+	if !ok || len(branches) != 2 {
+		t.Fatalf("expected resolved 'detail' to carry a 2-branch oneOf, got %v", detail["oneOf"])
+	}
+	if detail["discriminator"] == nil {
+		t.Error("expected resolved 'detail' to keep its discriminator")
+	}
+}
