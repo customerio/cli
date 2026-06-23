@@ -329,7 +329,18 @@ func resolveSchemaValue(value any, components *openapiComponents, seen map[strin
 		if ref, ok := v["$ref"].(string); ok {
 			return resolveSchemaRef(ref, v, components, seen)
 		}
-		for _, key := range []string{"properties", "items", "additionalProperties", "allOf", "anyOf", "oneOf", "not"} {
+		// properties is a map of name->schema, not a schema itself; resolve each
+		// member so $refs nested under object properties are followed too.
+		if props, ok := v["properties"].(map[string]any); ok {
+			for name, propSchema := range props {
+				resolved, err := resolveSchemaValue(propSchema, components, seen)
+				if err != nil {
+					return nil, err
+				}
+				props[name] = resolved
+			}
+		}
+		for _, key := range []string{"items", "additionalProperties", "allOf", "anyOf", "oneOf", "not"} {
 			resolved, ok, err := resolveSchemaField(v[key], components, seen)
 			if err != nil {
 				return nil, err
