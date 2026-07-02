@@ -2,7 +2,7 @@ name: Merge public export PR
 
 # Merges the Copybara-generated public-export PR into `main` on demand.
 #
-# This is a MANUAL step (workflow_dispatch). Merges to cio-cli keep refreshing
+# This is a MANUAL step (workflow_dispatch). Upstream merges keep refreshing
 # the `copybara/public-export` PR (changes accumulate); a human triggers this
 # workflow when ready to push the accumulated export through to public `main`,
 # then triggers the release workflow separately.
