@@ -127,3 +127,39 @@ func TestMaybePromoteSandboxToken_SwallowsStillSandbox(t *testing.T) {
 		t.Fatal("throttle timestamp should be recorded after a failed attempt")
 	}
 }
+
+// A 200 whose body is still a sandbox token must not be treated as a successful
+// promotion: keep the stored token and record the throttle. Otherwise the token
+// would be swapped to another sandbox token with SandboxPromoteCheckedAt zeroed,
+// and since the stored token is still a sandbox token the throttle never engages
+// — re-probing the promote endpoint on every command.
+func TestMaybePromoteSandboxToken_RejectsNonLiveTokenBody(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"token":"sa_sandbox_still_sandbox"}`))
+	}))
+	defer srv.Close()
+
+	saToken := "sa_sandbox_z"
+	if err := client.WriteCredentials(&client.Credentials{
+		ServiceAccountToken: saToken,
+		AccountID:           "9",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	maybePromoteSandboxToken(context.Background(), newClientFor(srv.URL, saToken), saToken, false)
+
+	creds, err := client.ReadCredentials()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if creds.ServiceAccountToken != saToken {
+		t.Fatalf("token must be unchanged for a non-live response body, got %q", creds.ServiceAccountToken)
+	}
+	if creds.SandboxPromoteCheckedAt.IsZero() {
+		t.Fatal("throttle timestamp should be recorded so the endpoint is not re-probed every command")
+	}
+}

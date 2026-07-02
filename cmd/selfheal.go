@@ -57,7 +57,17 @@ func maybePromoteSandboxToken(ctx context.Context, c *client.Client, saToken str
 	var promoted struct {
 		Token string `json:"token"`
 	}
-	if err := json.Unmarshal(resp, &promoted); err != nil || !client.IsServiceAccountToken(promoted.Token) {
+	// A successful promotion must return a *live* token. A malformed response or
+	// a still-sandbox token is treated like a failed probe: record the throttle
+	// timestamp so we don't re-probe on every command. Without this guard, a
+	// non-live token would be persisted with SandboxPromoteCheckedAt zeroed
+	// below, and since the stored token is still a sandbox token the throttle
+	// (which keys off that timestamp) would never engage — re-probing the
+	// endpoint on every invocation. IsServiceAccountToken matches sa_sandbox_
+	// too, so it alone is not enough.
+	if err := json.Unmarshal(resp, &promoted); err != nil ||
+		!client.IsServiceAccountToken(promoted.Token) ||
+		client.IsSandboxServiceAccountToken(promoted.Token) {
 		creds.SandboxPromoteCheckedAt = time.Now()
 		_ = client.WriteCredentials(creds)
 		return
