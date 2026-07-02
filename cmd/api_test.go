@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/customerio/cli/internal/client"
@@ -843,5 +844,47 @@ func TestAPI_JSONFromFile_EmptyFilename(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "missing filename") {
 		t.Errorf("expected 'missing filename' error, got: %s", err.Error())
+	}
+}
+
+// TestSchema_SendsAccessTokenOnSpecFetch guards the plan-gating path: when the
+// caller authenticates with a pre-exchanged JWT (CIO_ACCESS_TOKEN) and no
+// service-account token — as the in-product agent does — the OpenAPI spec fetch
+// must still send it as Bearer auth, so the server can return the plan-filtered
+// spec (e.g. a Builder workspace without campaigns) instead of the full one.
+func TestSchema_SendsAccessTokenOnSpecFetch(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CIO_TOKEN", "")
+	t.Setenv("CIO_ACCESS_TOKEN", "jwt-agent-token")
+
+	var mu sync.Mutex
+	var journeysAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/openapi.json":
+			mu.Lock()
+			journeysAuth = r.Header.Get("Authorization")
+			mu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(schemaSpec()))
+		case "/cdp/api/openapi.json":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(schemaCDPSpec()))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("CIO_API_URL", server.URL)
+
+	if _, _, err := executeCommand("schema"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mu.Lock()
+	got := journeysAuth
+	mu.Unlock()
+	if got != "Bearer jwt-agent-token" {
+		t.Fatalf("spec fetch must send CIO_ACCESS_TOKEN as Bearer auth so the server can plan-filter the spec; got %q", got)
 	}
 }
