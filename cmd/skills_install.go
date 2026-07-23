@@ -32,6 +32,8 @@ var bootstrapSkillBody string
 type installTarget struct {
 	// name is the value accepted by --target.
 	name string
+	// label is the display name shown in the human-readable summary.
+	label string
 	// subdir is the path under the install base where skill folders live.
 	subdir string
 }
@@ -43,8 +45,17 @@ type installTarget struct {
 //   - codex — Codex, Cursor, Windsurf, and other agents that support the open
 //     agent skills convention read .agents/skills/<name>/SKILL.md.
 var installTargets = []installTarget{
-	{name: "claude", subdir: filepath.Join(".claude", "skills")},
-	{name: "codex", subdir: filepath.Join(".agents", "skills")},
+	{name: "claude", label: "Claude Code", subdir: filepath.Join(".claude", "skills")},
+	{name: "codex", label: "Codex", subdir: filepath.Join(".agents", "skills")},
+}
+
+// installedFile is one target's entry in the install result. A nil Files means
+// the SKILL.md was already there and left untouched (no --force).
+type installedFile struct {
+	Skill  string   `json:"skill"`
+	Target string   `json:"target"`
+	Dir    string   `json:"dir"`
+	Files  []string `json:"files"`
 }
 
 var skillsInstallCmd = &cobra.Command{
@@ -108,13 +119,6 @@ func runSkillsInstall(cmd *cobra.Command, args []string) error {
 	dryRun := GetDryRun(cmd)
 	force, _ := cmd.Flags().GetBool("force")
 
-	type installedFile struct {
-		Skill  string   `json:"skill"`
-		Target string   `json:"target"`
-		Dir    string   `json:"dir"`
-		Files  []string `json:"files"`
-	}
-
 	installed := make([]installedFile, 0, len(selected)*len(targets))
 	for _, s := range selected {
 		// The skill path and file names come from the server; never let them
@@ -143,6 +147,13 @@ func runSkillsInstall(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// This CLI speaks JSON for agents and pipes, but a person who ran install at
+	// a terminal gets a readable summary instead.
+	if installWantsHumanOutput(cmd) {
+		printInstallSummary(cmd.OutOrStdout(), dryRun, installed)
+		return nil
+	}
+
 	action := "installed"
 	if dryRun {
 		action = "would install"
@@ -155,6 +166,82 @@ func runSkillsInstall(cmd *cobra.Command, args []string) error {
 		"action":    action,
 		"installed": installed,
 	})
+}
+
+// installWantsHumanOutput is true only at an interactive terminal with no
+// machine-output flag — --jq and --raw-output both mean the caller wants JSON.
+func installWantsHumanOutput(cmd *cobra.Command) bool {
+	if GetJQFlag(cmd) != "" || GetRawFlag(cmd) {
+		return false
+	}
+	return writerIsTerminal(cmd.OutOrStdout())
+}
+
+// printInstallSummary renders the install result for a human, in place of the
+// JSON that agents get.
+func printInstallSummary(w io.Writer, dryRun bool, installed []installedFile) {
+	wrote := false
+	width := 0
+	for _, f := range installed {
+		if len(f.Files) > 0 {
+			wrote = true
+		}
+		if l := len(targetLabel(f.Target)); l > width {
+			width = l
+		}
+	}
+
+	switch {
+	case dryRun:
+		fmt.Fprintln(w, "Would install the Customer.io CLI skill:")
+	case wrote:
+		fmt.Fprintln(w, "Installed the Customer.io CLI skill:")
+	default:
+		fmt.Fprintln(w, "The Customer.io CLI skill is already installed:")
+	}
+	fmt.Fprintln(w)
+
+	for _, f := range installed {
+		path := tildeAbbrev(filepath.Join(f.Dir, "SKILL.md"))
+		note := ""
+		if !dryRun && len(f.Files) == 0 {
+			note = "  (already present)"
+		}
+		fmt.Fprintf(w, "  %-*s%s%s\n", width+2, targetLabel(f.Target), path, note)
+	}
+	fmt.Fprintln(w)
+
+	switch {
+	case dryRun:
+		fmt.Fprintln(w, "Run without --dry-run to write these files.")
+	case !wrote:
+		fmt.Fprintln(w, "Re-run with --force to overwrite.")
+	default:
+		fmt.Fprintln(w, "Your agent picks it up on its next run. Try: cio prime")
+	}
+}
+
+func targetLabel(name string) string {
+	for _, t := range installTargets {
+		if t.name == name {
+			return t.label
+		}
+	}
+	return name
+}
+
+func tildeAbbrev(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	if path == home {
+		return "~"
+	}
+	if rest, ok := strings.CutPrefix(path, home+string(filepath.Separator)); ok {
+		return "~" + string(filepath.Separator) + rest
+	}
+	return path
 }
 
 // writeSkill writes the bootstrap SKILL.md (a thin pointer to `cio prime`)
