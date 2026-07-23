@@ -230,6 +230,68 @@ func TestSkillsInstallNoForceSkipsExisting(t *testing.T) {
 	}
 }
 
+func TestPrintInstallSummary(t *testing.T) {
+	claude := installedFile{Skill: "cli", Target: "claude", Dir: "/home/u/.claude/skills/cli", Files: []string{"SKILL.md"}}
+	codex := installedFile{Skill: "cli", Target: "codex", Dir: "/home/u/.agents/skills/cli", Files: []string{"SKILL.md"}}
+	claudeSkipped := installedFile{Skill: "cli", Target: "claude", Dir: "/home/u/.claude/skills/cli", Files: nil}
+	codexSkipped := installedFile{Skill: "cli", Target: "codex", Dir: "/home/u/.agents/skills/cli", Files: nil}
+
+	cases := []struct {
+		name      string
+		dryRun    bool
+		installed []installedFile
+		wantHead  string
+		wantFoot  string
+		wantNote  bool // expect an "(already present)" marker
+	}{
+		{
+			name:      "fresh install",
+			installed: []installedFile{claude, codex},
+			wantHead:  "Installed the Customer.io CLI skill:",
+			wantFoot:  "cio prime",
+		},
+		{
+			name:      "dry run",
+			dryRun:    true,
+			installed: []installedFile{claude, codex},
+			wantHead:  "Would install the Customer.io CLI skill:",
+			wantFoot:  "Run without --dry-run",
+		},
+		{
+			name:      "all already present",
+			installed: []installedFile{claudeSkipped, codexSkipped},
+			wantHead:  "The Customer.io CLI skill is already installed:",
+			wantFoot:  "Re-run with --force",
+			wantNote:  true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var b bytes.Buffer
+			printInstallSummary(&b, tc.dryRun, tc.installed)
+			out := b.String()
+			t.Logf("\n%s", out)
+
+			if !strings.Contains(out, tc.wantHead) {
+				t.Errorf("missing header %q in:\n%s", tc.wantHead, out)
+			}
+			if !strings.Contains(out, tc.wantFoot) {
+				t.Errorf("missing footer %q in:\n%s", tc.wantFoot, out)
+			}
+			if !strings.Contains(out, "Claude Code") || !strings.Contains(out, "Codex") {
+				t.Errorf("expected friendly target labels, got:\n%s", out)
+			}
+			if strings.Contains(out, "{") || strings.Contains(out, "\"status\"") {
+				t.Errorf("human summary must not contain JSON, got:\n%s", out)
+			}
+			if got := strings.Contains(out, "(already present)"); got != tc.wantNote {
+				t.Errorf("already-present note = %v, want %v in:\n%s", got, tc.wantNote, out)
+			}
+		})
+	}
+}
+
 func TestSafeRelPath(t *testing.T) {
 	for _, name := range []string{"SKILL.md", "recipes/liquid.md", "a/b/c.md"} {
 		if _, err := safeRelPath(name); err != nil {
