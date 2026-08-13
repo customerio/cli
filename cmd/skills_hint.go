@@ -39,10 +39,14 @@ func shouldHintSkillsInstall(cmd *cobra.Command) bool {
 		return false
 	}
 
-	skillPath := filepath.Join(home, ".claude", "skills", "cli", "SKILL.md")
-	if _, err := os.Stat(skillPath); err == nil {
-		return false
-	}
+	return !bootstrapSkillInstalled(home)
+}
 
-	return true
+// bootstrapSkillInstalled reports whether the bootstrap skill is present in the
+// global Claude Code skills directory. Only the current name counts, so a
+// leftover under the old generic name keeps the hint firing rather than
+// suppressing the re-install that would replace it.
+func bootstrapSkillInstalled(home string) bool {
+	_, err := os.Stat(filepath.Join(home, ".claude", "skills", bootstrapSkillName, "SKILL.md"))
+	return err == nil
 }
