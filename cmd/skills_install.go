@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -147,10 +148,17 @@ func runSkillsInstall(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	removed, err := removeLegacyInstalls(base, targets, dryRun)
+	if err != nil {
+		// The skill itself is installed; a leftover we couldn't clear is worth
+		// saying out loud but not worth failing the command over.
+		fmt.Fprintf(cmd.ErrOrStderr(), "cio: %v\n", err)
+	}
+
 	// This CLI speaks JSON for agents and pipes, but a person who ran install at
 	// a terminal gets a readable summary instead.
 	if installWantsHumanOutput(cmd) {
-		printInstallSummary(cmd.OutOrStdout(), dryRun, installed)
+		printInstallSummary(cmd.OutOrStdout(), dryRun, installed, removed)
 		return nil
 	}
 
@@ -165,7 +173,41 @@ func runSkillsInstall(cmd *cobra.Command, args []string) error {
 		"dry_run":   dryRun,
 		"action":    action,
 		"installed": installed,
+		"removed":   removed,
 	})
+}
+
+// legacyBootstrapDir is the directory an earlier install wrote the bootstrap
+// skill into. Left in place it keeps claiming the generic `cli` name in the
+// agent's skill list, which is how it ends up loaded for unrelated CLI work.
+const legacyBootstrapDir = "cli"
+
+// bootstrapBodyMarker is a phrase unique to the SKILL.md body this CLI writes.
+// Only a directory whose SKILL.md carries it is ours to replace; a skill
+// somebody else happens to have named `cli` is left alone.
+const bootstrapBodyMarker = "Customer.io ships an agent-first CLI"
+
+// removeLegacyInstalls deletes the pre-rename bootstrap directory for each
+// target and returns the paths removed. One target failing does not strand the
+// others: each is attempted, and the failures come back joined.
+func removeLegacyInstalls(base string, targets []installTarget, dryRun bool) ([]string, error) {
+	var removed []string
+	var failures error
+	for _, t := range targets {
+		dir := filepath.Join(base, t.subdir, legacyBootstrapDir)
+		body, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
+		if err != nil || !strings.Contains(string(body), bootstrapBodyMarker) {
+			continue
+		}
+		if !dryRun {
+			if err := os.RemoveAll(dir); err != nil {
+				failures = errors.Join(failures, fmt.Errorf("could not remove the earlier install at %s: %w", dir, err))
+				continue
+			}
+		}
+		removed = append(removed, dir)
+	}
+	return removed, failures
 }
 
 // installWantsHumanOutput is true only at an interactive terminal with no
@@ -179,7 +221,7 @@ func installWantsHumanOutput(cmd *cobra.Command) bool {
 
 // printInstallSummary renders the install result for a human, in place of the
 // JSON that agents get.
-func printInstallSummary(w io.Writer, dryRun bool, installed []installedFile) {
+func printInstallSummary(w io.Writer, dryRun bool, installed []installedFile, removed []string) {
 	wrote := false
 	width := 0
 	for _, f := range installed {
@@ -218,6 +260,27 @@ func printInstallSummary(w io.Writer, dryRun bool, installed []installedFile) {
 		fmt.Fprintln(w, "Re-run with --force to overwrite.")
 	default:
 		fmt.Fprintln(w, "Your agent picks it up on its next run. Try: cio prime")
+	}
+
+	printRemovedLegacy(w, dryRun, removed)
+}
+
+// printRemovedLegacy tells a human which earlier installs were cleaned up.
+func printRemovedLegacy(w io.Writer, dryRun bool, removed []string) {
+	if len(removed) == 0 {
+		return
+	}
+
+	verb := "Removed"
+	if dryRun {
+		verb = "Would remove"
+	}
+
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "%s an earlier install that claimed the generic \"cli\" name:\n", verb)
+	fmt.Fprintln(w)
+	for _, dir := range removed {
+		fmt.Fprintf(w, "  %s\n", tildeAbbrev(dir))
 	}
 }
 
@@ -316,29 +379,30 @@ func safeRelPath(name string) (string, error) {
 	return clean, nil
 }
 
-// bootstrapSkillNames are the candidate paths for the entry/bootstrap skill, in
-// preference order. The bootstrap is the only skill installed locally; its
-// routing index points the agent at every other reference, which is fetched
-// from the backend on demand via `cio skills read <skill>`.
-var bootstrapSkillNames = []string{"cli", "cio"}
+// bootstrapSkillName is the path the bootstrap skill is served under, and so the
+// directory and frontmatter name it installs as. The bootstrap is the only skill
+// installed locally; its routing index points the agent at every other
+// reference, fetched from the backend on demand via `cio skills read <skill>`.
+const bootstrapSkillName = "cio"
 
 // selectBootstrap returns the single bootstrap skill to install. The other
 // skills are intentionally not written to disk — they are served by the API
 // and read at runtime so their content stays current.
+//
+// A backend that serves the bootstrap under the retired name is an error rather
+// than something to fall back on: installing under that name is what makes an
+// agent load this skill for unrelated CLI work, so failing here is better than
+// quietly writing it.
 func selectBootstrap(all []skills.Skill) ([]skills.Skill, error) {
-	byPath := make(map[string]skills.Skill, len(all))
 	available := make([]string, 0, len(all))
 	for _, s := range all {
-		byPath[s.Path] = s
-		available = append(available, s.Path)
-	}
-	for _, want := range bootstrapSkillNames {
-		if s, ok := byPath[want]; ok {
+		if s.Path == bootstrapSkillName {
 			return []skills.Skill{s}, nil
 		}
+		available = append(available, s.Path)
 	}
-	err := fmt.Errorf("could not find the bootstrap skill (looked for %s)",
-		strings.Join(bootstrapSkillNames, ", "))
+
+	err := fmt.Errorf("could not find the bootstrap skill %q", bootstrapSkillName)
 	output.PrintError(output.CodeGeneralError, err.Error(), map[string]any{
 		"available_skills": available,
 	})

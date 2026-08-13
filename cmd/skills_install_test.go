@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/customerio/cli/internal/skills"
 )
 
 // runSkillsInstall drives `cio skills install` against a test server with a
@@ -66,12 +68,12 @@ func TestSkillsInstallBootstrapOnly(t *testing.T) {
 	if result.Scope != "global" {
 		t.Errorf("expected scope global, got %q", result.Scope)
 	}
-	// Only the bootstrap skill (cli), once per target (claude+codex).
+	// Only the bootstrap skill (cio), once per target (claude+codex).
 	if len(result.Installed) != 2 {
-		t.Fatalf("expected 2 entries (cli x claude+codex), got %d: %+v", len(result.Installed), result.Installed)
+		t.Fatalf("expected 2 entries (cio x claude+codex), got %d: %+v", len(result.Installed), result.Installed)
 	}
 	for _, e := range result.Installed {
-		if e.Skill != "cli" {
+		if e.Skill != "cio" {
 			t.Errorf("expected only the bootstrap skill, got %q", e.Skill)
 		}
 	}
@@ -87,12 +89,12 @@ func TestSkillsInstallBootstrapOnly(t *testing.T) {
 	// Bootstrap SKILL.md exists for both targets: server-tuned frontmatter plus
 	// a minimal body that just points the agent at `cio prime`.
 	for _, target := range []string{".claude", ".agents"} {
-		p := filepath.Join(home, target, "skills", "cli", "SKILL.md")
+		p := filepath.Join(home, target, "skills", "cio", "SKILL.md")
 		data, err := os.ReadFile(p)
 		if err != nil {
 			t.Fatalf("expected bootstrap SKILL.md at %s: %v", p, err)
 		}
-		if !strings.HasPrefix(string(data), "---\nname: \"cli\"\ndescription: \"Builder onboarding.\"\n---\n") {
+		if !strings.HasPrefix(string(data), "---\nname: \"cio\"\ndescription: \"Builder onboarding.\"\n---\n") {
 			t.Errorf("expected frontmatter on %s, got:\n%s", p, data)
 		}
 		if !strings.Contains(string(data), "cio prime") {
@@ -100,7 +102,7 @@ func TestSkillsInstallBootstrapOnly(t *testing.T) {
 		}
 	}
 	// Bootstrap sub-files are fetched at runtime, not installed.
-	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "cli", "onboarding.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "cio", "onboarding.md")); !os.IsNotExist(err) {
 		t.Errorf("bootstrap sub-files must not be installed, got err=%v", err)
 	}
 }
@@ -158,7 +160,7 @@ func TestSkillsInstallTargetSelection(t *testing.T) {
 	if _, err := runInstallCommand(t, srv, home, "--target", "codex"); err != nil {
 		t.Fatalf("install failed: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "cli", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "cio", "SKILL.md")); err != nil {
 		t.Errorf("expected codex install: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".claude")); !os.IsNotExist(err) {
@@ -187,7 +189,7 @@ func TestSkillsInstallProject(t *testing.T) {
 	if _, err := runInstallCommand(t, srv, home, "--project", "--target", "claude"); err != nil {
 		t.Fatalf("install failed: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(proj, ".claude", "skills", "cli", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(proj, ".claude", "skills", "cio", "SKILL.md")); err != nil {
 		t.Errorf("expected project install under cwd: %v", err)
 	}
 }
@@ -197,7 +199,7 @@ func TestSkillsInstallNoForceSkipsExisting(t *testing.T) {
 	defer srv.Close()
 
 	home := t.TempDir()
-	skillDir := filepath.Join(home, ".claude", "skills", "cli")
+	skillDir := filepath.Join(home, ".claude", "skills", "cio")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -231,8 +233,8 @@ func TestSkillsInstallNoForceSkipsExisting(t *testing.T) {
 }
 
 func TestPrintInstallSummary(t *testing.T) {
-	claude := installedFile{Skill: "cli", Target: "claude", Dir: "/home/u/.claude/skills/cli", Files: []string{"SKILL.md"}}
-	codex := installedFile{Skill: "cli", Target: "codex", Dir: "/home/u/.agents/skills/cli", Files: []string{"SKILL.md"}}
+	claude := installedFile{Skill: "cio", Target: "claude", Dir: "/home/u/.claude/skills/cio", Files: []string{"SKILL.md"}}
+	codex := installedFile{Skill: "cio", Target: "codex", Dir: "/home/u/.agents/skills/cio", Files: []string{"SKILL.md"}}
 	claudeSkipped := installedFile{Skill: "cli", Target: "claude", Dir: "/home/u/.claude/skills/cli", Files: nil}
 	codexSkipped := installedFile{Skill: "cli", Target: "codex", Dir: "/home/u/.agents/skills/cli", Files: nil}
 
@@ -269,7 +271,7 @@ func TestPrintInstallSummary(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var b bytes.Buffer
-			printInstallSummary(&b, tc.dryRun, tc.installed)
+			printInstallSummary(&b, tc.dryRun, tc.installed, nil)
 			out := b.String()
 			t.Logf("\n%s", out)
 
@@ -352,5 +354,150 @@ func TestReadLineContextCancel(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("readLineContext did not return on cancellation (hang)")
+	}
+}
+
+func TestSelectBootstrap(t *testing.T) {
+	served := []skills.Skill{
+		{Path: "fly-api", Name: "Fly"},
+		{Path: bootstrapSkillName, Name: "Current"},
+	}
+	got, err := selectBootstrap(served)
+	if err != nil {
+		t.Fatalf("selectBootstrap: %v", err)
+	}
+	if len(got) != 1 || got[0].Path != bootstrapSkillName {
+		t.Fatalf("expected the bootstrap skill, got %+v", got)
+	}
+
+	// The retired name is not a fallback: installing under it is the bug, so a
+	// backend still serving it must fail loudly instead.
+	legacyOnly := []skills.Skill{{Path: legacyBootstrapDir, Name: "Legacy"}}
+	if _, err := selectBootstrap(legacyOnly); err == nil {
+		t.Fatal("expected an error when only the retired name is served")
+	}
+}
+
+func TestRemoveLegacyInstalls(t *testing.T) {
+	base := t.TempDir()
+
+	writeSKILL := func(subdir, name, body string) string {
+		dir := filepath.Join(base, subdir, name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	ourBody := "---\nname: cli\n---\n\n" + bootstrapBodyMarker + ", `cio`.\n"
+
+	// Nothing left over.
+	removed, err := removeLegacyInstalls(base, installTargets, false)
+	if err != nil {
+		t.Fatalf("removeLegacyInstalls: %v", err)
+	}
+	if len(removed) != 0 {
+		t.Fatalf("expected nothing removed, got %v", removed)
+	}
+
+	// A dry run reports the directory without touching it.
+	ours := writeSKILL(filepath.Join(".claude", "skills"), legacyBootstrapDir, ourBody)
+	removed, err = removeLegacyInstalls(base, installTargets, true)
+	if err != nil {
+		t.Fatalf("removeLegacyInstalls dry run: %v", err)
+	}
+	if len(removed) != 1 || removed[0] != ours {
+		t.Fatalf("expected the dry run to report %q, got %v", ours, removed)
+	}
+	if _, err := os.Stat(ours); err != nil {
+		t.Fatalf("dry run must not delete, got err=%v", err)
+	}
+
+	// Somebody else's skill of the same name is left alone; ours is removed.
+	theirs := writeSKILL(filepath.Join(".agents", "skills"), legacyBootstrapDir, "---\nname: cli\n---\n\n# My own CLI notes\n")
+	removed, err = removeLegacyInstalls(base, installTargets, false)
+	if err != nil {
+		t.Fatalf("removeLegacyInstalls: %v", err)
+	}
+	if len(removed) != 1 || removed[0] != ours {
+		t.Fatalf("expected only our own leftover removed, got %v", removed)
+	}
+	if _, err := os.Stat(ours); !os.IsNotExist(err) {
+		t.Errorf("expected our leftover gone, got err=%v", err)
+	}
+	if _, err := os.Stat(theirs); err != nil {
+		t.Errorf("expected an unrelated same-named skill untouched, got err=%v", err)
+	}
+}
+
+func TestPrintInstallSummaryReportsRemoved(t *testing.T) {
+	var b bytes.Buffer
+	installed := []installedFile{{Skill: "cio", Target: "claude", Dir: "/home/u/.claude/skills/cio", Files: []string{"SKILL.md"}}}
+	printInstallSummary(&b, false, installed, []string{"/home/u/.agents/skills/cli"})
+
+	out := b.String()
+	if !strings.Contains(out, "Removed an earlier install") || !strings.Contains(out, "/home/u/.agents/skills/cli") {
+		t.Errorf("expected the summary to report the removal, got:\n%s", out)
+	}
+}
+
+// The cleanup recognizes its own leftovers by a phrase from the body install
+// writes, so editing that paragraph must not silently stop it matching.
+func TestBootstrapBodyCarriesMarker(t *testing.T) {
+	if !strings.Contains(bootstrapSkillBody, bootstrapBodyMarker) {
+		t.Fatalf("the installed body must contain %q, or removeLegacyInstalls stops recognizing installs this CLI wrote", bootstrapBodyMarker)
+	}
+}
+
+// A target we cannot clean must not strand the others.
+func TestRemoveLegacyInstallsContinuesPastAFailure(t *testing.T) {
+	if len(installTargets) < 2 {
+		t.Skip("needs at least two targets to show one failure not stranding another")
+	}
+	// The failure is forced with directory permissions, which root ignores.
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: a sealed directory is still removable")
+	}
+
+	base := t.TempDir()
+	body := "---\nname: cli\n---\n\n" + bootstrapBodyMarker + ", `cio`.\n"
+
+	dirs := make([]string, 0, len(installTargets))
+	for _, target := range installTargets {
+		dir := filepath.Join(base, target.subdir, legacyBootstrapDir)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		dirs = append(dirs, dir)
+	}
+
+	// Seal the first target's parent so its removal fails.
+	sealed := filepath.Dir(dirs[0])
+	if err := os.Chmod(sealed, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(sealed, 0o755) })
+
+	removed, err := removeLegacyInstalls(base, installTargets, false)
+	if err == nil {
+		t.Fatal("expected the blocked target to surface an error")
+	}
+
+	reported := make(map[string]bool, len(removed))
+	for _, r := range removed {
+		reported[r] = true
+	}
+	for _, dir := range dirs[1:] {
+		if _, statErr := os.Stat(dir); !os.IsNotExist(statErr) {
+			t.Errorf("expected %s removed despite the earlier failure, got err=%v", dir, statErr)
+		}
+		if !reported[dir] {
+			t.Errorf("expected %s reported as removed, got %v", dir, removed)
+		}
 	}
 }

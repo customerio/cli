@@ -46,7 +46,7 @@ func skillsFixture(accountPlan string) *skills.SkillsResponse {
 			{
 				// Entrypoint-less skill: empty Content, routing index is
 				// synthesized client-side from each sub-file's frontmatter.
-				Path:        "cli",
+				Path:        "cio",
 				Name:        "Customer.io CLI Onboarding",
 				Description: "Builder onboarding.",
 				Content:     "",
@@ -189,12 +189,12 @@ func TestSkillsListIncludesFileDescriptions(t *testing.T) {
 		} `json:"files"`
 	}
 	for i := range result {
-		if result[i].Path == "cli" {
+		if result[i].Path == "cio" {
 			cli = &result[i]
 		}
 	}
 	if cli == nil {
-		t.Fatal("expected cli skill in list")
+		t.Fatal("expected cio skill in list")
 	}
 	// Files come back sorted, each carrying its frontmatter description.
 	// With no stored plan info, nothing is filtered.
@@ -210,7 +210,7 @@ func TestSkillsReadSynthesizesIndex(t *testing.T) {
 	srv := testSkillsServer(t)
 	defer srv.Close()
 
-	out, err := runSkillsCommand(t, srv, "read", "cli")
+	out, err := runSkillsCommand(t, srv, "read", "cio")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestSkillsReadSynthesizesIndex(t *testing.T) {
 	content, _ := result["content"].(string)
 	for _, want := range []string{
 		"# Customer.io CLI Onboarding",
-		"cio skills read cli/<file>",
+		"cio skills read cio/<file>",
 		"- **auth.md** - cio CLI authentication reference.",
 		"- **onboarding.md** - Builder onboarding entry point.",
 	} {
