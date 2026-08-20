@@ -481,6 +481,45 @@ func TestAPI_QueryParams(t *testing.T) {
 	}
 }
 
+func TestAPI_QueryStringParams(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	stdout, _, err := executeCommand("api", "/v1/environments/{environment_id}/campaigns",
+		"--api-url", server.URL,
+		"--params", `environment_id=456&name=credit%20builder%20-%20purchase%20made`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if path := result["path"].(string); path != "/v1/environments/456/campaigns" {
+		t.Errorf("want path param substituted, got %q", path)
+	}
+	query := result["query"].(map[string]any)
+	if name := query["name"].([]any)[0].(string); name != "credit builder - purchase made" {
+		t.Errorf("want decoded name, got %q", name)
+	}
+}
+
+func TestAPI_QueryStringParamsPathParamStillValidated(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	_, _, err := executeCommand("api", "/v1/environments/{environment_id}/test_users/{test_user_id}",
+		"--api-url", server.URL,
+		"--params", `environment_id=217838&test_user_id=eea50d000102%2F..%2Fdeliveries`)
+	if err == nil {
+		t.Fatal("expected error for reserved path character")
+	}
+	if !strings.Contains(err.Error(), "reserved path character") {
+		t.Errorf("expected reserved path character error, got: %v", err)
+	}
+}
+
 func TestAPI_PostWithBody(t *testing.T) {
 	server, cleanup := setupAPITest(t)
 	defer cleanup()

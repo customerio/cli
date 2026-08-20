@@ -176,8 +176,9 @@ func extractPathParamNames(pathTemplate string) map[string]bool {
 
 // parseAPIParams separates path template params from query params.
 // Path params are those matching {placeholder} in the path template.
-// Input is validated through validate.ValidateParams (keys must match
-// [a-zA-Z0-9_]+, values must not contain control characters, see
+// Input is validated through validate.ValidateParams (JSON object or
+// query-string sugar; keys must match [a-zA-Z0-9_]+ with an optional []
+// suffix, values must not contain control characters, see
 // MaxParamValueLength). Path params are validated as safe URL path segments;
 // the API remains the source of truth for endpoint-specific ID semantics.
 func parseAPIParams(pathTemplate, paramsJSON string) (pathParams, queryParams map[string]string, err error) {

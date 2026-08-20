@@ -95,7 +95,7 @@ cio skills read design-studio/nodes.md  # node creation, component markup
 
 | Flag | Description |
 |------|-------------|
-| `--params <json>` | Path + query parameters as JSON object |
+| `--params <json>` | Path + query parameters as a JSON object (query-string form `k=v&k2=v2` also accepted; there encode a space as `%20`, a plus as `%2B`, a literal `&` as `%26`) |
 | `--json <payload>` | JSON request body (`@filename` / `-` for stdin). With `--arg`/`--argjson` present, it is evaluated as a jq program that builds the body. |
 | `--jq <expr>` | Filter output with a jq expression (bundled gojq) |
 | `-r, --raw-output` | With `--jq`, print string results unquoted, like `jq -r` (no external jq) |

@@ -144,6 +144,8 @@ CIO_TOKEN=sa_live_xxx cio api /v1/environments/{environment_id}/campaigns --para
 
 Use `cio api <path>` for any API endpoint. Path placeholders are resolved from `--params`. The HTTP method defaults to GET (or POST if `--json` is provided); override with `-X`:
 
+`--params` takes a JSON object; URL-query syntax (`--params 'type=event&size=200'`) is also accepted. In the query form a bare `+` is rejected as ambiguous — write `%20` for a space and `%2B` for a plus (`email=a%2Btag@b.com`), or use the JSON form, where both are literal.
+
 ```bash
 # List campaigns in workspace 123
 cio api /v1/environments/{environment_id}/campaigns --params '{"environment_id": "123"}'
