@@ -66,7 +66,7 @@ func init() {
 	flags := rootCmd.PersistentFlags()
 
 	flags.String("json", "", "Raw JSON request body, @filename to read from a file, or - to read from stdin")
-	flags.String("params", "", "Query parameters as JSON, converted to query string for GET")
+	flags.String("params", "", `Query parameters as a JSON object, e.g. '{"email":"a@b.com"}' (query-string form 'email=a@b.com' also accepted; encode spaces as %20 and a plus as %2B)`)
 	flags.String("jq", "", "jq expression filter (via gojq)")
 	flags.BoolP("raw-output", "r", false, "Print string results unquoted, like jq -r (no external jq needed)")
 	flags.StringArray("arg", nil, "Bind a string variable for --json's jq program: --arg name=value, or name=@file to read the value from a file (repeatable). Makes --json a jq -n program — no external jq needed")
