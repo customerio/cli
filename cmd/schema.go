@@ -69,36 +69,112 @@ func runSchema(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	q := parseSchemaArgs(args)
+	switch q.kind {
+	case schemaQueryResources:
+		return schemaOutput(cmd, listEndpoints(reg))
+	case schemaQueryPath:
+		return schemaForPath(cmd, reg, q.a)
+	case schemaQueryResourceMethod:
+		return schemaForResourceMethod(cmd, reg, q.a, q.b)
+	case schemaQueryResource:
+		return schemaForResource(cmd, reg, q.a)
+	case schemaQueryHTTPEndpoint:
+		return schemaForHTTPEndpoint(cmd, reg, q.a, q.b)
+	case schemaQuerySpacedResourceMethod:
+		return schemaForSpacedResourceMethod(cmd, reg, q.a, q.b)
+	default:
+		// Unreachable while Args is MaximumNArgs(2); still emits the structured
+		// error every other path does, so relaxing that validator can't silently
+		// break the JSON contract agents parse.
+		err := fmt.Errorf("expected at most 2 arguments, got %d", len(args))
+		output.PrintError(output.CodeValidationError, err.Error(), nil)
+		return err
+	}
+}
+
+type schemaQueryKind int
+
+const (
+	schemaQueryInvalid schemaQueryKind = iota
+	schemaQueryResources
+	schemaQueryResource
+	schemaQueryResourceMethod
+	schemaQueryPath
+	schemaQueryHTTPEndpoint
+	schemaQuerySpacedResourceMethod
+)
+
+type schemaQuery struct {
+	kind schemaQueryKind
+	a, b string
+}
+
+// httpMethods are the verbs the "METHOD /path" form accepts. No resource is named
+// after one, so a first argument that matches is unambiguously that form.
+var httpMethods = map[string]bool{
+	"GET": true, "POST": true, "PUT": true, "PATCH": true,
+	"DELETE": true, "HEAD": true, "OPTIONS": true,
+}
+
+// parseSchemaArgs interprets the documented argument forms. Two args normally mean
+// "METHOD /path"; `schema campaigns update` can only be `campaigns.update` typed
+// with a space, which gets its own kind so the caller can name the dotted form
+// instead of reporting the resource as an unknown HTTP method. Agents hit that
+// error, read it as "the endpoint does not exist", and go looking for another way
+// to do the thing.
+//
+// The first argument decides: a verb keeps the "METHOD /path" reading even when the
+// path is malformed, so `schema DELETE segments` (a path missing its leading slash)
+// still reports an unknown endpoint rather than being read as a resource named
+// "DELETE".
+func parseSchemaArgs(args []string) schemaQuery {
 	switch len(args) {
 	case 0:
-		// List all resources with endpoint counts.
-		return schemaOutput(cmd, listEndpoints(reg))
+		return schemaQuery{kind: schemaQueryResources}
 
 	case 1:
 		arg := args[0]
-
-		// If it starts with /, it's a path — show all methods.
 		if strings.HasPrefix(arg, "/") {
-			return schemaForPath(cmd, reg, arg)
+			return schemaQuery{kind: schemaQueryPath, a: arg}
 		}
-
-		// If it contains a dot, treat as resource.method.
 		if parts := strings.SplitN(arg, ".", 2); len(parts) == 2 {
-			return schemaForResourceMethod(cmd, reg, parts[0], parts[1])
+			return schemaQuery{kind: schemaQueryResourceMethod, a: parts[0], b: parts[1]}
 		}
-
-		// Otherwise treat as a resource name.
-		return schemaForResource(cmd, reg, arg)
+		return schemaQuery{kind: schemaQueryResource, a: arg}
 
 	case 2:
-		// "METHOD /path" form.
 		method := strings.ToUpper(args[0])
-		path := args[1]
-		return schemaForHTTPEndpoint(cmd, reg, method, path)
+		if !httpMethods[method] && !strings.HasPrefix(args[1], "/") {
+			return schemaQuery{kind: schemaQuerySpacedResourceMethod, a: args[0], b: args[1]}
+		}
+		return schemaQuery{kind: schemaQueryHTTPEndpoint, a: method, b: args[1]}
 
 	default:
-		return fmt.Errorf("too many arguments")
+		return schemaQuery{kind: schemaQueryInvalid}
 	}
+}
+
+// schemaForSpacedResourceMethod rejects `schema <resource> <method>` and names the
+// dotted form. The separator is one character away from correct, so the old
+// "unknown endpoint: CAMPAIGNS update" read as "no such endpoint" and sent callers
+// looking elsewhere. Suggesting the fix rather than accepting the spelling keeps one
+// documented form, matching schemaForResourceMethod's reject-and-suggest shape.
+func schemaForSpacedResourceMethod(cmd *cobra.Command, reg *routes.Registry, resource, method string) error {
+	dotted := resource + "." + method
+	msg := fmt.Sprintf("%q is not an argument form: use \"<resource>.<method>\" or \"METHOD /path\"", resource+" "+method)
+
+	if reg.FindRoute(resource, method) != nil {
+		msg += "\n\nDid you mean:\n  cio schema " + dotted
+	} else if suggestions := suggestRoutes(reg, resource, method); len(suggestions) > 0 {
+		msg += "\n\nDid you mean:"
+		for _, s := range suggestions {
+			msg += fmt.Sprintf("\n  cio schema %s.%s", s.Resource, s.Method)
+		}
+	}
+
+	output.PrintError(output.CodeValidationError, msg, map[string]any{"dotted_form": dotted})
+	return fmt.Errorf("%s", msg)
 }
 
 // schemaForResource lists all endpoints for a given resource.
