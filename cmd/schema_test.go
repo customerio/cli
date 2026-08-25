@@ -99,3 +99,39 @@ func TestRouteDetailIncludesRequestBodySchema(t *testing.T) {
 		t.Fatalf("expected response schema type=object, got %v", parsedResponseSchema["type"])
 	}
 }
+
+func TestParseSchemaArgs(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want schemaQuery
+	}{
+		{"no args", nil, schemaQuery{kind: schemaQueryResources}},
+		{"resource", []string{"campaigns"}, schemaQuery{kind: schemaQueryResource, a: "campaigns"}},
+		{"dotted method", []string{"campaigns.update"}, schemaQuery{kind: schemaQueryResourceMethod, a: "campaigns", b: "update"}},
+		{"path", []string{"/v1/environments/{environment_id}/campaigns"}, schemaQuery{kind: schemaQueryPath, a: "/v1/environments/{environment_id}/campaigns"}},
+		{"http endpoint", []string{"get", "/v1/environments/{environment_id}/campaigns"}, schemaQuery{kind: schemaQueryHTTPEndpoint, a: "GET", b: "/v1/environments/{environment_id}/campaigns"}},
+		// A second arg that isn't a path can only be the dotted form typed with a
+		// space; reading it as an HTTP method produces "unknown endpoint: CAMPAIGNS
+		// update", which looks like the endpoint doesn't exist.
+		// Not accepted as a second spelling: it gets its own kind so the caller can
+		// reject it and name `campaigns.update`, keeping one documented form.
+		{"space instead of dot", []string{"campaigns", "update"}, schemaQuery{kind: schemaQuerySpacedResourceMethod, a: "campaigns", b: "update"}},
+		// A verb keeps the "METHOD /path" reading even when the path is malformed:
+		// otherwise a slash-less path gets fuzzy-matched as a resource name and the
+		// error points somewhere unrelated instead of at the missing slash.
+		{"verb with slashless path", []string{"DELETE", "segments"}, schemaQuery{kind: schemaQueryHTTPEndpoint, a: "DELETE", b: "segments"}},
+		{"lowercase verb with slashless path", []string{"delete", "segments"}, schemaQuery{kind: schemaQueryHTTPEndpoint, a: "DELETE", b: "segments"}},
+		// Cobra's MaximumNArgs(2) rejects this before RunE, but parseSchemaArgs is a
+		// pure function with its own contract — pinned so it stays total.
+		{"too many args", []string{"a", "b", "c"}, schemaQuery{kind: schemaQueryInvalid}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := parseSchemaArgs(tc.args); got != tc.want {
+				t.Errorf("parseSchemaArgs(%q) = %+v, want %+v", tc.args, got, tc.want)
+			}
+		})
+	}
+}
