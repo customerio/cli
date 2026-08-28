@@ -47,7 +47,7 @@ func TestRouteDetailIncludesRequestBodySchema(t *testing.T) {
 		ResponseSchemas: map[string]json.RawMessage{
 			"200": json.RawMessage(`{"type":"object","properties":{"id":{"type":"integer"}}}`),
 		},
-	})
+	}, false)
 
 	if got := detail["description"]; got != "Create a campaign in the workspace." {
 		t.Fatalf("expected description to be preserved, got %v", got)

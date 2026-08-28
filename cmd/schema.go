@@ -21,18 +21,23 @@ var schemaCmd = &cobra.Command{
   cio schema GET /v1/environments/{environment_id}/campaigns
                                             — show schema for a specific HTTP method + path
   cio schema /v1/environments/{environment_id}/campaigns
-                                            — show all methods for a path`,
+                                            — show all methods for a path
+
+Add --compact to render endpoint detail as one line per field (dotted paths,
+"[]" for arrays, "?" for optional) instead of full JSON Schema.`,
 	Args: cobra.MaximumNArgs(2),
 	RunE: runSchema,
 }
 
 func init() {
 	schemaCmd.Flags().Bool("refresh", false, "Force re-download of API specs")
+	schemaCmd.Flags().Bool("compact", false, "Render endpoint detail as flattened one-line-per-field text instead of full JSON Schema")
 	rootCmd.AddCommand(schemaCmd)
 }
 
 func runSchema(cmd *cobra.Command, args []string) error {
 	refresh, _ := cmd.Flags().GetBool("refresh")
+	compact, _ := cmd.Flags().GetBool("compact")
 
 	var baseURL string
 	var accessToken string
@@ -74,13 +79,13 @@ func runSchema(cmd *cobra.Command, args []string) error {
 	case schemaQueryResources:
 		return schemaOutput(cmd, listEndpoints(reg))
 	case schemaQueryPath:
-		return schemaForPath(cmd, reg, q.a)
+		return schemaForPath(cmd, reg, q.a, compact)
 	case schemaQueryResourceMethod:
-		return schemaForResourceMethod(cmd, reg, q.a, q.b)
+		return schemaForResourceMethod(cmd, reg, q.a, q.b, compact)
 	case schemaQueryResource:
 		return schemaForResource(cmd, reg, q.a)
 	case schemaQueryHTTPEndpoint:
-		return schemaForHTTPEndpoint(cmd, reg, q.a, q.b)
+		return schemaForHTTPEndpoint(cmd, reg, q.a, q.b, compact)
 	case schemaQuerySpacedResourceMethod:
 		return schemaForSpacedResourceMethod(cmd, reg, q.a, q.b)
 	default:
@@ -197,7 +202,7 @@ func schemaForResource(cmd *cobra.Command, reg *routes.Registry, resource string
 }
 
 // schemaForResourceMethod shows the full schema for a resource.method pair.
-func schemaForResourceMethod(cmd *cobra.Command, reg *routes.Registry, resource, method string) error {
+func schemaForResourceMethod(cmd *cobra.Command, reg *routes.Registry, resource, method string, compact bool) error {
 	route := reg.FindRoute(resource, method)
 	if route == nil {
 		suggestions := suggestRoutes(reg, resource, method)
@@ -212,11 +217,11 @@ func schemaForResourceMethod(cmd *cobra.Command, reg *routes.Registry, resource,
 		return fmt.Errorf("%s", msg)
 	}
 
-	return schemaOutput(cmd, routeDetail(route))
+	return schemaOutput(cmd, routeDetail(route, compact))
 }
 
 // schemaForPath shows all methods for a given path.
-func schemaForPath(cmd *cobra.Command, reg *routes.Registry, path string) error {
+func schemaForPath(cmd *cobra.Command, reg *routes.Registry, path string, compact bool) error {
 	var matches []routes.Route
 	for _, r := range reg.Routes {
 		if r.Path == path {
@@ -232,16 +237,16 @@ func schemaForPath(cmd *cobra.Command, reg *routes.Registry, path string) error 
 
 	var result []map[string]any
 	for _, r := range matches {
-		result = append(result, routeDetail(&r))
+		result = append(result, routeDetail(&r, compact))
 	}
 	return schemaOutput(cmd, result)
 }
 
 // schemaForHTTPEndpoint shows schema for a specific METHOD + path.
-func schemaForHTTPEndpoint(cmd *cobra.Command, reg *routes.Registry, method, path string) error {
+func schemaForHTTPEndpoint(cmd *cobra.Command, reg *routes.Registry, method, path string, compact bool) error {
 	for _, r := range reg.Routes {
 		if r.HTTPMethod == method && r.Path == path {
-			return schemaOutput(cmd, routeDetail(&r))
+			return schemaOutput(cmd, routeDetail(&r, compact))
 		}
 	}
 
@@ -265,8 +270,45 @@ func routeSummary(r *routes.Route) map[string]any {
 	return m
 }
 
-// routeDetail returns the full schema view of a route.
-func routeDetail(r *routes.Route) map[string]any {
+// compactSkippedReason explains a body that came back as JSON Schema despite
+// --compact. Saying so matters more than the fallback itself: silently handing
+// back a different shape than the flag asked for reads as the flag not working.
+const compactSkippedReason = "flattening was larger than the schema itself, so the schema is returned instead"
+
+// compactIfSmaller renders flattened lines when compact is requested and the
+// result is actually smaller than the schema it replaces.
+//
+// Flattening enumerates one line per leaf path, so a schema whose components
+// are shared across many branches can flatten to several times its own size:
+// an endpoint embedding a third-party type resolved to 18MB and flattened to
+// 54MB. Compact is a size optimisation, so it should never lose to the thing it
+// optimises. This is decided per body, not per endpoint, so a small request
+// still renders compact next to a pathological response.
+//
+// The flattening happens here rather than at the call site so it cannot run on
+// the default path, where the result would be discarded: a route can carry a
+// body and several response schemas, and schemaForPath renders every method on
+// a path.
+func compactIfSmaller(compact bool, schema json.RawMessage, rootRequired bool) ([]string, bool) {
+	if !compact {
+		return nil, false
+	}
+
+	lines := compactLines(flattenSchemaRoot(schema, rootRequired))
+	total := 0
+	for _, l := range lines {
+		total += len(l)
+	}
+	if total >= len(schema) {
+		return nil, false
+	}
+
+	return lines, true
+}
+
+// routeDetail returns the schema view of a route. When compact is true, params
+// and bodies render as flattened field lines instead of full JSON Schema.
+func routeDetail(r *routes.Route, compact bool) map[string]any {
 	m := map[string]any{
 		"resource":    r.Resource,
 		"method":      r.Method,
@@ -280,49 +322,79 @@ func routeDetail(r *routes.Route) map[string]any {
 	}
 
 	if len(r.PathParams) > 0 {
-		params := make([]map[string]any, 0, len(r.PathParams))
-		for _, p := range r.PathParams {
-			param := map[string]any{
-				"name":        p.Name,
-				"type":        p.Type,
-				"required":    p.Required,
-				"description": p.Description,
+		if compact {
+			m["path_params"] = compactPathParamLines(r.PathParams)
+		} else {
+			params := make([]map[string]any, 0, len(r.PathParams))
+			for _, p := range r.PathParams {
+				param := map[string]any{
+					"name":        p.Name,
+					"type":        p.Type,
+					"required":    p.Required,
+					"description": p.Description,
+				}
+				if len(p.Schema) > 0 {
+					param["schema"] = json.RawMessage(p.Schema)
+				}
+				params = append(params, param)
 			}
-			if len(p.Schema) > 0 {
-				param["schema"] = json.RawMessage(p.Schema)
-			}
-			params = append(params, param)
+			m["path_params"] = params
 		}
-		m["path_params"] = params
 	}
 
 	if len(r.QueryParams) > 0 {
-		qparams := make([]map[string]any, 0, len(r.QueryParams))
-		for _, p := range r.QueryParams {
-			qparam := map[string]any{
-				"name":        p.Name,
-				"type":        p.Type,
-				"required":    p.Required,
-				"description": p.Description,
+		if compact {
+			m["query_params"] = compactQueryParamLines(r.QueryParams)
+		} else {
+			qparams := make([]map[string]any, 0, len(r.QueryParams))
+			for _, p := range r.QueryParams {
+				qparam := map[string]any{
+					"name":        p.Name,
+					"type":        p.Type,
+					"required":    p.Required,
+					"description": p.Description,
+				}
+				if len(p.Schema) > 0 {
+					qparam["schema"] = json.RawMessage(p.Schema)
+				}
+				qparams = append(qparams, qparam)
 			}
-			if len(p.Schema) > 0 {
-				qparam["schema"] = json.RawMessage(p.Schema)
-			}
-			qparams = append(qparams, qparam)
+			m["query_params"] = qparams
 		}
-		m["query_params"] = qparams
 	}
 
 	if len(r.RequestBodySchema) > 0 {
-		m["request_body_schema"] = json.RawMessage(r.RequestBodySchema)
+		lines, ok := compactIfSmaller(compact, r.RequestBodySchema, r.RequestBodyRequired)
+		switch {
+		case ok:
+			m["request_body"] = lines
+		case compact:
+			m["request_body_schema"] = json.RawMessage(r.RequestBodySchema)
+			m["compact_skipped"] = compactSkippedReason
+		default:
+			m["request_body_schema"] = json.RawMessage(r.RequestBodySchema)
+		}
 		m["request_body_required"] = r.RequestBodyRequired
 	}
 	if len(r.ResponseSchemas) > 0 {
-		responseSchemas := make(map[string]json.RawMessage, len(r.ResponseSchemas))
+		responses := make(map[string][]string, len(r.ResponseSchemas))
+		schemas := make(map[string]json.RawMessage, len(r.ResponseSchemas))
 		for status, schema := range r.ResponseSchemas {
-			responseSchemas[status] = json.RawMessage(schema)
+			if lines, ok := compactIfSmaller(compact, schema, true); ok {
+				responses[status] = lines
+				continue
+			}
+			schemas[status] = json.RawMessage(schema)
+			if compact {
+				m["compact_skipped"] = compactSkippedReason
+			}
 		}
-		m["response_schemas"] = responseSchemas
+		if len(responses) > 0 {
+			m["responses"] = responses
+		}
+		if len(schemas) > 0 {
+			m["response_schemas"] = schemas
+		}
 	}
 
 	// Include example usage.

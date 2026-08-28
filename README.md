@@ -168,6 +168,7 @@ cio schema                          # list all resources
 cio schema campaigns                # list endpoints for a resource
 cio schema campaigns.list           # full schema for a method
 cio schema GET /v1/environments/{environment_id}/campaigns  # by HTTP method + path
+cio schema campaigns.list --compact # flattened one line per field instead of JSON Schema
 ```
 
 ### Account ID fallback

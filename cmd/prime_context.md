@@ -64,9 +64,18 @@ cio schema GET /v1/environments/{environment_id}/campaigns
                                         # full schema for a specific HTTP method + path
 cio schema /v1/environments/{environment_id}/campaigns
                                         # show all methods for a path
+cio schema campaigns.create --compact   # same detail, one line per field
 ```
 
 Drill down to a specific endpoint (`resource.method`) to get the detailed schema. It includes path/query params, parameter schema details, `request_body_schema`, `response_schemas`, and an example command. The resource-level listing is kept compact on purpose.
+
+Add `--compact` to any endpoint-detail query to get the same information as flattened field lines instead of JSON Schema: dotted paths for nested objects, `[]` for arrays, `?` for optional, inline enums, `ref:Component` for an unresolved `$ref`. It replaces `request_body_schema`/`response_schemas` with `request_body`/`responses`. Median saving across the API is about a third, and roughly half on the large discriminated bodies you introspect before a write (`newsletters.update` 21.5KB to 7.6KB, `campaigns.create` 31.1KB to 16.1KB). Drop `--compact` when you need the exact schema shape (`oneOf`/`anyOf` branches, nesting, validation keywords).
+
+```
+campaign.audience.type  integer  Audience selector. 0 = Self, 1 = all related people, 2 = ...
+campaign.name           string
+campaign.tags[]         string?
+```
 
 ## Skills — Domain Knowledge
 
