@@ -423,6 +423,15 @@ func fetchAccountInfo(ctx context.Context, httpClient *http.Client, baseURL, acc
 // Returns the raw JSON response body on success (2xx status).
 // Returns an *APIError for 4xx/5xx responses.
 func (c *Client) Do(ctx context.Context, method, path string, params map[string]string, body json.RawMessage) (json.RawMessage, error) {
+	var b *Body
+	if body != nil {
+		b = &Body{ContentType: "application/json", Bytes: body}
+	}
+	return c.DoWithBody(ctx, method, path, params, b)
+}
+
+// DoWithBody carries payloads that are not JSON, such as a multipart file upload.
+func (c *Client) DoWithBody(ctx context.Context, method, path string, params map[string]string, body *Body) (json.RawMessage, error) {
 	// Block non-GET requests in read-only mode as a client-side safety net.
 	if c.readOnly && method != http.MethodGet {
 		return nil, fmt.Errorf("read-only mode: %s requests are not permitted (use without --read-only to allow writes)", method)
@@ -498,11 +507,18 @@ func (c *Client) Do(ctx context.Context, method, path string, params map[string]
 	return nil, lastErr
 }
 
+// Bytes rather than a stream: a body can be sent more than once, since the retry
+// loop and the 401 token refresh both re-issue the request.
+type Body struct {
+	ContentType string
+	Bytes       []byte
+}
+
 // doOnce executes a single HTTP request (no retry).
-func (c *Client) doOnce(ctx context.Context, method, rawURL, accessToken string, body json.RawMessage) (json.RawMessage, error) {
+func (c *Client) doOnce(ctx context.Context, method, rawURL, accessToken string, body *Body) (json.RawMessage, error) {
 	var bodyReader io.Reader
 	if body != nil {
-		bodyReader = bytes.NewReader(body)
+		bodyReader = bytes.NewReader(body.Bytes)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, bodyReader)
@@ -511,7 +527,7 @@ func (c *Client) doOnce(ctx context.Context, method, rawURL, accessToken string,
 	}
 
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Content-Type", body.ContentType)
 	}
 	req.Header.Set("Accept", "application/json")
 

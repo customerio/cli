@@ -16,6 +16,7 @@ import (
 
 	"github.com/customerio/cli/internal/client"
 	"github.com/customerio/cli/internal/clipboard"
+	"github.com/spf13/pflag"
 )
 
 func executeCommand(args ...string) (stdout, stderr string, err error) {
@@ -35,12 +36,22 @@ func executeCommand(args ...string) (stdout, stderr string, err error) {
 	_ = rootCmd.PersistentFlags().Set("token", "")
 	_ = rootCmd.PersistentFlags().Set("scope", "")
 	_ = rootCmd.PersistentFlags().Set("profile", "")
+	// Pagination flags leak between runs otherwise: one test asking for
+	// --page-all leaves every later command emitting NDJSON.
+	_ = rootCmd.PersistentFlags().Set("page-all", "false")
+	_ = rootCmd.PersistentFlags().Set("page", "0")
+	_ = rootCmd.PersistentFlags().Set("limit", "0")
 	// Clear the package-level profile selection so it doesn't leak between runs.
 	client.SetActiveProfile("")
 
 	// Reset local flags on subcommands that persist across test runs.
 	if f := apiCmd.Flags().Lookup("method"); f != nil {
 		_ = apiCmd.Flags().Set("method", "")
+	}
+	// StringArray flags append rather than replace, so a plain Set would stack
+	// values from earlier tests onto this run.
+	if f, ok := apiCmd.Flags().Lookup("file").Value.(pflag.SliceValue); ok {
+		_ = f.Replace(nil)
 	}
 
 	// Reset auth login flags; Changed must clear too, or the

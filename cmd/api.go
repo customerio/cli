@@ -23,7 +23,12 @@ var apiCmd = &cobra.Command{
 
 The path argument is an API endpoint, e.g. /v1/environments/{environment_id}/campaigns.
 Placeholders like {environment_id} are substituted from --params. The HTTP method
-defaults to GET (or POST if --json is provided); override with -X/--method.
+defaults to GET (or POST if --json or --file is provided); override with -X/--method.
+
+Endpoints that take a file accept it through --file, which sends the request as
+multipart/form-data. --json then supplies the request's other form fields instead
+of a JSON body. Large uploads can outrun the default 30s budget; raise it with
+--timeout.
 
 All standard flags work: --jq, --dry-run, --page-all, --page, --limit.
 
@@ -34,13 +39,15 @@ Examples:
   cio api /v1/environments/{environment_id}/campaigns/{campaign_id} --params '{"environment_id": "456", "campaign_id": "789"}'
   cio api /v1/environments/{environment_id}/campaigns -X POST --params '{"environment_id": "456"}' --json '{"campaign": {"name": "Test"}}'
   cio api /v1/accounts/{account_id} --params '{"account_id": "123"}'
-  cio api /v1/environments/{environment_id}/segments --params '{"environment_id": "456"}' --dry-run`,
+  cio api /v1/environments/{environment_id}/segments --params '{"environment_id": "456"}' --dry-run
+  cio api /v1/environments/{environment_id}/knowledge_source_library/upload --params '{"environment_id": "456"}' --file @runbook.md --json '{"name": "Ops runbook"}' --timeout 120s`,
 	Args: cobra.ExactArgs(1),
 	RunE: runAPI,
 }
 
 func init() {
-	apiCmd.Flags().StringP("method", "X", "", "HTTP method (default: GET, or POST if --json is provided)")
+	apiCmd.Flags().StringP("method", "X", "", "HTTP method (default: GET, or POST if --json or --file is provided)")
+	apiCmd.Flags().StringArray("file", nil, "Send the request as multipart/form-data with a file part: --file @path, or --file field=@path to name the part (repeatable). --json then supplies the request's other form fields")
 	rootCmd.AddCommand(apiCmd)
 }
 
@@ -67,7 +74,13 @@ func runAPI(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	httpMethod := resolveMethod(methodFlag, jsonBody)
+	fileParts, err := GetFileParts(cmd)
+	if err != nil {
+		output.PrintError(output.CodeValidationError, err.Error(), nil)
+		return err
+	}
+
+	httpMethod := resolveMethod(methodFlag, jsonBody != nil || len(fileParts) > 0)
 
 	// Parse --params: separate path params from query params.
 	paramsRaw, _ := cmd.Flags().GetString("params")
@@ -102,11 +115,23 @@ func runAPI(cmd *cobra.Command, args []string) error {
 
 	jq := GetJQFlag(cmd)
 
+	// Ahead of the dry run: reporting "valid" for a combination the real run
+	// rejects is worse than no check.
+	if _, _, pageAllFlag := GetPaginationFlags(cmd); pageAllFlag && len(fileParts) > 0 {
+		err := fmt.Errorf("--page-all cannot be combined with --file")
+		output.PrintError(output.CodeValidationError, err.Error(), nil)
+		return err
+	}
+
 	// Dry run.
 	if GetDryRun(cmd) {
 		apiURL, _ := cmd.Flags().GetString("api-url")
 		if apiURL == "" {
 			apiURL = c.BaseURL()
+		}
+		contentType := "application/json"
+		if len(fileParts) > 0 {
+			contentType = "multipart/form-data"
 		}
 		dryRun := map[string]any{
 			"dry_run": true,
@@ -114,7 +139,7 @@ func runAPI(cmd *cobra.Command, args []string) error {
 			"url":     apiURL + resolvedPath,
 			"headers": map[string]string{
 				"Authorization": "Bearer [REDACTED]",
-				"Content-Type":  "application/json",
+				"Content-Type":  contentType,
 			},
 			"validation": map[string]any{
 				"valid":  true,
@@ -124,7 +149,18 @@ func runAPI(cmd *cobra.Command, args []string) error {
 		if len(queryParams) > 0 {
 			dryRun["params"] = queryParams
 		}
-		if jsonBody != nil {
+		if len(fileParts) > 0 {
+			// Names and sizes only — a dry run must not spill file contents.
+			dryRun["files"] = filePartsSummary(fileParts)
+			fields, err := formFieldsFromJSON(jsonBody)
+			if err != nil {
+				output.PrintError(output.CodeValidationError, err.Error(), nil)
+				return err
+			}
+			if len(fields) > 0 {
+				dryRun["fields"] = fields
+			}
+		} else if jsonBody != nil {
 			dryRun["body"] = json.RawMessage(jsonBody)
 		}
 		return output.FprintJSON(cmd.OutOrStdout(), dryRun)
@@ -146,7 +182,13 @@ func runAPI(cmd *cobra.Command, args []string) error {
 		return doPageAll(cmd, c, resolvedPath, queryParams, page, limit)
 	}
 
-	result, err := c.Do(cmd.Context(), httpMethod, resolvedPath, queryParams, jsonBody)
+	body, err := requestBody(jsonBody, fileParts)
+	if err != nil {
+		output.PrintError(output.CodeValidationError, err.Error(), nil)
+		return err
+	}
+
+	result, err := c.DoWithBody(cmd.Context(), httpMethod, resolvedPath, queryParams, body)
 	if err != nil {
 		return handleAPIError(err)
 	}
@@ -154,12 +196,26 @@ func runAPI(cmd *cobra.Command, args []string) error {
 	return output.FprintProcess(cmd.OutOrStdout(), result, jq, GetRawFlag(cmd))
 }
 
+func requestBody(jsonBody json.RawMessage, fileParts []client.FilePart) (*client.Body, error) {
+	if len(fileParts) == 0 {
+		if jsonBody == nil {
+			return nil, nil
+		}
+		return &client.Body{ContentType: "application/json", Bytes: jsonBody}, nil
+	}
+	fields, err := formFieldsFromJSON(jsonBody)
+	if err != nil {
+		return nil, err
+	}
+	return client.NewMultipartBody(fileParts, fields)
+}
+
 // resolveMethod determines the HTTP method from the flag or defaults.
-func resolveMethod(flag string, body []byte) string {
+func resolveMethod(flag string, hasBody bool) string {
 	if flag != "" {
 		return strings.ToUpper(flag)
 	}
-	if body != nil {
+	if hasBody {
 		return "POST"
 	}
 	return "GET"
