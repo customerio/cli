@@ -48,6 +48,7 @@ Examples:
 func init() {
 	apiCmd.Flags().StringP("method", "X", "", "HTTP method (default: GET, or POST if --json or --file is provided)")
 	apiCmd.Flags().StringArray("file", nil, "Send the request as multipart/form-data with a file part: --file @path, or --file field=@path to name the part (repeatable). --json then supplies the request's other form fields")
+	apiCmd.Flags().Bool("no-preflight", false, "Send the request even if the path is absent from the API spec")
 	rootCmd.AddCommand(apiCmd)
 }
 
@@ -120,6 +121,10 @@ func runAPI(cmd *cobra.Command, args []string) error {
 	if _, _, pageAllFlag := GetPaginationFlags(cmd); pageAllFlag && len(fileParts) > 0 {
 		err := fmt.Errorf("--page-all cannot be combined with --file")
 		output.PrintError(output.CodeValidationError, err.Error(), nil)
+		return err
+	}
+
+	if err := preflightPath(cmd, c, httpMethod, resolvedPath); err != nil {
 		return err
 	}
 
@@ -208,6 +213,98 @@ func requestBody(jsonBody json.RawMessage, fileParts []client.FilePart) (*client
 		return nil, err
 	}
 	return client.NewMultipartBody(fileParts, fields)
+}
+
+// preflightPath rejects a path the API spec does not describe, before the
+// request is sent.
+//
+// An unknown path on the API host does not answer 404: the web app's catch-all
+// serves it a 200 and an HTML page. A mistyped or invented path therefore comes
+// back looking like an ambiguous empty result rather than a mistake, which
+// invites trying more variants of it. Failing here instead names the problem
+// and points at `cio schema`, and costs no request.
+//
+// It is a gate, not a lookup: an error means the request must not be sent, and
+// nil means let it through. Callers get nil both when the path matches a route
+// and when the check cannot be trusted to judge it — no spec available, or a
+// path outside the trees the spec documents. The API stays the authority on
+// what exists; this only catches paths already known to be absent.
+func preflightPath(cmd *cobra.Command, c *client.Client, httpMethod, resolvedPath string) error {
+	if skip, _ := cmd.Flags().GetBool("no-preflight"); skip {
+		return nil
+	}
+
+	// Whatever the spec cache already holds, read without a lock or a
+	// download: this sits in front of every request, so it must not be able to
+	// block on another process or wait on the network. A cold cache means the
+	// check has no opinion, and `cio schema` is what fills it.
+	idx, err := routes.LoadPathIndexFromCache(specCacheOptions(c))
+	if err != nil {
+		// Fail open: an absent or unparseable spec must never stop a caller
+		// from reaching an endpoint that does exist.
+		return nil
+	}
+
+	// The route exists: nothing to block, so let the request proceed. The
+	// matched template is of no use here — the request keeps the caller's path.
+	if _, matched := idx.Lookup(httpMethod, resolvedPath); matched {
+		return nil
+	}
+
+	// The path did not match, which is only grounds to reject it if it sits
+	// inside a scope the spec describes. Outside one, the spec has nothing to
+	// say: real endpoints are omitted from it, and whole trees may postdate it.
+	if !idx.Covers(resolvedPath) {
+		return nil
+	}
+
+	// The shape exists but not for this verb — a different mistake, and one
+	// the caller fixes by changing -X rather than the path.
+	if allowed := idx.MethodsFor(resolvedPath); len(allowed) > 0 {
+		// Name the fix, not just the verb: the method is usually implicit here
+		// (GET unless a body was passed), so the caller needs to be told to
+		// set it rather than left to infer that from the list.
+		fix := fmt.Sprintf("the path accepts %s", strings.Join(allowed, ", "))
+		if len(allowed) == 1 {
+			fix = fmt.Sprintf("retry with -X %s", allowed[0])
+		}
+		err := fmt.Errorf(
+			"%s is not allowed on %s (%s); request not sent",
+			httpMethod, resolvedPath, fix)
+		output.PrintError(output.CodeValidationError, err.Error(), map[string]any{
+			"method":          httpMethod,
+			"path":            resolvedPath,
+			"allowed_methods": allowed,
+			"skip_check_flag": "--no-preflight",
+		})
+		return err
+	}
+
+	suggestions := idx.Suggest(resolvedPath, 5)
+	hint := "run 'cio schema' to list resources"
+	if len(suggestions) > 0 && suggestions[0].Resource != "" {
+		hint = fmt.Sprintf("run 'cio schema %s' to list that resource's endpoints", suggestions[0].Resource)
+	}
+	// The spec omits a few real endpoints, and for those `cio schema` cannot
+	// list what it does not describe — so the way past a wrong rejection has to
+	// be in the message, not only in the details below.
+	hint += ", or resend with --no-preflight if you know the endpoint exists"
+
+	closest := make([]string, 0, len(suggestions))
+	for _, s := range suggestions {
+		closest = append(closest, s.String())
+	}
+
+	err = fmt.Errorf(
+		"%s %s is not an endpoint in the API spec, so the request was not sent; %s",
+		httpMethod, resolvedPath, hint)
+	output.PrintError(output.CodeValidationError, err.Error(), map[string]any{
+		"method":            httpMethod,
+		"path":              resolvedPath,
+		"closest_endpoints": closest,
+		"skip_check_flag":   "--no-preflight",
+	})
+	return err
 }
 
 // resolveMethod determines the HTTP method from the flag or defaults.

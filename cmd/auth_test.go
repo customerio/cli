@@ -53,6 +53,10 @@ func executeCommand(args ...string) (stdout, stderr string, err error) {
 	if f, ok := apiCmd.Flags().Lookup("file").Value.(pflag.SliceValue); ok {
 		_ = f.Replace(nil)
 	}
+	if f := apiCmd.Flags().Lookup("no-preflight"); f != nil {
+		_ = apiCmd.Flags().Set("no-preflight", "false")
+		f.Changed = false
+	}
 
 	// Reset auth login flags; Changed must clear too, or the
 	// mutually-exclusive-flags check sees stale state from earlier tests.

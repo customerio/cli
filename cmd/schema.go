@@ -39,36 +39,14 @@ func runSchema(cmd *cobra.Command, args []string) error {
 	refresh, _ := cmd.Flags().GetBool("refresh")
 	compact, _ := cmd.Flags().GetBool("compact")
 
-	var baseURL string
-	var accessToken string
-	var cacheKey string
-	if c := clientFromCmd(cmd); c != nil {
-		baseURL = c.BaseURL()
-		switch {
-		case c.ServiceAccountToken() != "":
-			jwt, err := c.EnsureAccessToken(cmd.Context())
-			if err == nil {
-				accessToken = jwt
-				cacheKey = c.ServiceAccountToken()
-			}
-		case c.AccessToken() != "":
-			// Pre-exchanged JWT (e.g. CIO_ACCESS_TOKEN, as the in-product agent uses)
-			// — send it so the server returns the plan-filtered spec, not the full one.
-			accessToken = c.AccessToken()
-			cacheKey = accessToken
-		}
-	}
+	opts := specLoadOptions(cmd, clientFromCmd(cmd))
+	opts.ForceRefresh = refresh
 
 	if GetDryRun(cmd) {
-		return schemaDryRun(cmd, baseURL, accessToken)
+		return schemaDryRun(cmd, opts.BaseURL, opts.AccessToken)
 	}
 
-	reg, err := routes.LoadRegistry(routes.LoadRegistryOptions{
-		BaseURL:      baseURL,
-		AccessToken:  accessToken,
-		CacheKey:     cacheKey,
-		ForceRefresh: refresh,
-	})
+	reg, err := routes.LoadRegistry(opts)
 	if err != nil {
 		output.PrintError(output.CodeGeneralError, fmt.Sprintf("failed to load routes: %v", err), nil)
 		return err
