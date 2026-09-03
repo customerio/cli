@@ -9,8 +9,57 @@ import (
 
 	"github.com/customerio/cli/internal/client"
 	"github.com/customerio/cli/internal/output"
+	"github.com/customerio/cli/internal/routes"
 	"github.com/spf13/cobra"
 )
+
+// specLoadOptions builds the spec-download options shared by the commands that
+// read the route registry, so `cio api`'s pre-send check and `cio schema`
+// always resolve the same spec — and the same cache entry — for one identity.
+func specLoadOptions(cmd *cobra.Command, c *client.Client) routes.LoadRegistryOptions {
+	var opts routes.LoadRegistryOptions
+	if c == nil {
+		return opts
+	}
+
+	opts.BaseURL = c.BaseURL()
+	switch {
+	case c.ServiceAccountToken() != "":
+		jwt, err := c.EnsureAccessToken(cmd.Context())
+		if err == nil {
+			opts.AccessToken = jwt
+			opts.CacheKey = c.ServiceAccountToken()
+		}
+	case c.AccessToken() != "":
+		// Pre-exchanged JWT (e.g. CIO_ACCESS_TOKEN, as the in-product agent uses)
+		// — send it so the server returns the plan-filtered spec, not the full one.
+		opts.AccessToken = c.AccessToken()
+		opts.CacheKey = opts.AccessToken
+	}
+	return opts
+}
+
+// specCacheOptions locates the spec cache for the current identity without
+// acquiring a token for it. Only a download needs credentials — reading what
+// the cache already holds needs the cache key alone, and asking for a token
+// would mean an exchange over the network, which is far more than a local
+// lookup should cost. The key matches the one specLoadOptions uses, so both
+// commands read and write the same directory.
+func specCacheOptions(c *client.Client) routes.LoadRegistryOptions {
+	var opts routes.LoadRegistryOptions
+	if c == nil {
+		return opts
+	}
+
+	opts.BaseURL = c.BaseURL()
+	switch {
+	case c.ServiceAccountToken() != "":
+		opts.CacheKey = c.ServiceAccountToken()
+	case c.AccessToken() != "":
+		opts.CacheKey = c.AccessToken()
+	}
+	return opts
+}
 
 // doPageAll runs auto-pagination and writes NDJSON to stdout.
 func doPageAll(cmd *cobra.Command, c *client.Client, path string, params map[string]string, startPage, limit int) error {

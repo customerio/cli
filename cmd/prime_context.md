@@ -193,6 +193,18 @@ Errors are structured JSON on stderr:
 
 Read the `message` field — it usually tells you what's wrong (missing field, wrong format, etc.).
 
+### Paths the spec does not describe
+
+`cio api` checks a path against the API spec before sending it. A path the spec
+does not describe is rejected without a request, and the error names the closest
+real endpoints plus the `cio schema` command that lists them — so treat it as
+"this endpoint does not exist", not as an empty result, and look the resource up
+rather than trying another spelling. A path that exists only for another method
+reports that method and the `-X` flag to use.
+
+A few real endpoints are absent from the spec. If you know the path exists,
+resend it with `--no-preflight`.
+
 ## Retry Behavior
 
 Automatic retries on HTTP 429 and 5xx with exponential backoff and jitter. Default: 3 retries. Respects `Retry-After` headers.
