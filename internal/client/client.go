@@ -730,26 +730,37 @@ func MintLoginCLILink(ctx context.Context, baseURL, saToken string, timeout time
 	return &out, nil
 }
 
-// parseJWTExpiry extracts the exp claim from a JWT without verifying the
-// signature. Returns the expiry time or an error if the token is not a
-// valid 3-part JWT or lacks an exp claim.
-func parseJWTExpiry(token string) (time.Time, error) {
+// decodeJWTClaims decodes a JWT's payload into claims without verifying the
+// signature. The client reads claims only as hints — an expiry to schedule a
+// refresh, an identifier to partition a cache — never to decide what a token
+// may do; the server verifies every request it receives.
+func decodeJWTClaims(token string, claims any) error {
 	parts := strings.SplitN(token, ".", 4)
 	if len(parts) != 3 {
-		return time.Time{}, fmt.Errorf("not a JWT")
+		return fmt.Errorf("not a JWT")
 	}
 
 	// The payload is base64url-encoded (no padding).
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return time.Time{}, fmt.Errorf("decode JWT payload: %w", err)
+		return fmt.Errorf("decode JWT payload: %w", err)
 	}
 
+	if err := json.Unmarshal(payload, claims); err != nil {
+		return fmt.Errorf("parse JWT claims: %w", err)
+	}
+	return nil
+}
+
+// parseJWTExpiry extracts the exp claim from a JWT without verifying the
+// signature. Returns the expiry time or an error if the token is not a
+// valid 3-part JWT or lacks an exp claim.
+func parseJWTExpiry(token string) (time.Time, error) {
 	var claims struct {
 		Exp json.Number `json:"exp"`
 	}
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return time.Time{}, fmt.Errorf("parse JWT claims: %w", err)
+	if err := decodeJWTClaims(token, &claims); err != nil {
+		return time.Time{}, err
 	}
 
 	expFloat, err := claims.Exp.Float64()
@@ -758,4 +769,23 @@ func parseJWTExpiry(token string) (time.Time, error) {
 	}
 
 	return time.Unix(int64(expFloat), 0), nil
+}
+
+// JWTID returns a JWT's jti claim without verifying the signature, and false
+// when the token is not a JWT or carries no jti.
+//
+// For the session tokens this CLI is handed, jti names the session rather
+// than the individual signing: the issuer signs a fresh token for the same
+// session on each request, which changes iat and with it every byte of the
+// token, while jti stays the same. That makes jti the handle for anything
+// that must hold steady across those re-signs — a cache partition, say —
+// where the token bytes do not.
+func JWTID(token string) (string, bool) {
+	var claims struct {
+		ID string `json:"jti"`
+	}
+	if err := decodeJWTClaims(token, &claims); err != nil || claims.ID == "" {
+		return "", false
+	}
+	return claims.ID, true
 }

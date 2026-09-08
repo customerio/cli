@@ -39,7 +39,7 @@ func runSchema(cmd *cobra.Command, args []string) error {
 	refresh, _ := cmd.Flags().GetBool("refresh")
 	compact, _ := cmd.Flags().GetBool("compact")
 
-	opts := specLoadOptions(cmd, clientFromCmd(cmd))
+	opts := specLoadOptions(cmd.Context(), clientFromCmd(cmd))
 	opts.ForceRefresh = refresh
 
 	if GetDryRun(cmd) {

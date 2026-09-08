@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,10 +14,32 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// specCacheKey picks the value that partitions the spec cache for a
+// pre-exchanged access token.
+//
+// The cache is per identity because the served spec is: an authenticated
+// fetch returns the plan-filtered spec for that account, and two identities
+// must never read each other's. A service-account token is a stable secret and
+// serves as its own key. A pre-exchanged JWT does not: its issuer re-signs it
+// on every request, so the bytes change while the identity does not, and a key
+// made of those bytes hands every call an empty cache — and a fresh download.
+// The token's jti names the session and survives the re-signs, so it is the
+// key, with the raw token as the fallback for a JWT that carries none.
+func specCacheKey(accessToken string) string {
+	if id, ok := client.JWTID(accessToken); ok {
+		return id
+	}
+	return accessToken
+}
+
 // specLoadOptions builds the spec-download options shared by the commands that
 // read the route registry, so `cio api`'s pre-send check and `cio schema`
 // always resolve the same spec — and the same cache entry — for one identity.
-func specLoadOptions(cmd *cobra.Command, c *client.Client) routes.LoadRegistryOptions {
+//
+// A service-account caller has its token exchanged here, under ctx: a caller
+// working to a deadline passes it so the exchange is bounded like the download
+// that follows it, rather than being an unbounded step in front of a bounded one.
+func specLoadOptions(ctx context.Context, c *client.Client) routes.LoadRegistryOptions {
 	var opts routes.LoadRegistryOptions
 	if c == nil {
 		return opts
@@ -25,7 +48,7 @@ func specLoadOptions(cmd *cobra.Command, c *client.Client) routes.LoadRegistryOp
 	opts.BaseURL = c.BaseURL()
 	switch {
 	case c.ServiceAccountToken() != "":
-		jwt, err := c.EnsureAccessToken(cmd.Context())
+		jwt, err := c.EnsureAccessToken(ctx)
 		if err == nil {
 			opts.AccessToken = jwt
 			opts.CacheKey = c.ServiceAccountToken()
@@ -34,7 +57,7 @@ func specLoadOptions(cmd *cobra.Command, c *client.Client) routes.LoadRegistryOp
 		// Pre-exchanged JWT (e.g. CIO_ACCESS_TOKEN, as the in-product agent uses)
 		// — send it so the server returns the plan-filtered spec, not the full one.
 		opts.AccessToken = c.AccessToken()
-		opts.CacheKey = opts.AccessToken
+		opts.CacheKey = specCacheKey(opts.AccessToken)
 	}
 	return opts
 }
@@ -56,7 +79,7 @@ func specCacheOptions(c *client.Client) routes.LoadRegistryOptions {
 	case c.ServiceAccountToken() != "":
 		opts.CacheKey = c.ServiceAccountToken()
 	case c.AccessToken() != "":
-		opts.CacheKey = c.AccessToken()
+		opts.CacheKey = specCacheKey(c.AccessToken())
 	}
 	return opts
 }

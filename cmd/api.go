@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/customerio/cli/internal/client"
 	"github.com/customerio/cli/internal/output"
@@ -215,6 +217,14 @@ func requestBody(jsonBody json.RawMessage, fileParts []client.FilePart) (*client
 	return client.NewMultipartBody(fileParts, fields)
 }
 
+// preflightSpecFetchBudget bounds everything the path check does over the
+// network when it finds the cache cold: the token exchange, if the caller's
+// credential needs one, and the one spec download. The spec is ~2.7MB and
+// normally arrives well inside this; a branch that does not finish in time is
+// a sign of a slow or stalled host, and the check gives up rather than hold
+// the caller's request behind it.
+const preflightSpecFetchBudget = 5 * time.Second
+
 // preflightPath rejects a path the API spec does not describe, before the
 // request is sent.
 //
@@ -234,15 +244,38 @@ func preflightPath(cmd *cobra.Command, c *client.Client, httpMethod, resolvedPat
 		return nil
 	}
 
-	// Whatever the spec cache already holds, read without a lock or a
-	// download: this sits in front of every request, so it must not be able to
-	// block on another process or wait on the network. A cold cache means the
-	// check has no opinion, and `cio schema` is what fills it.
+	// Read what the cache already holds first: no lock, no network, ~25ms.
 	idx, err := routes.LoadPathIndexFromCache(specCacheOptions(c))
 	if err != nil {
-		// Fail open: an absent or unparseable spec must never stop a caller
-		// from reaching an endpoint that does exist.
-		return nil
+		// Cold cache. Fetch the spec once so the check can exist at all — a
+		// session that never runs `cio schema` would otherwise never be
+		// checked. The first version of this check refused to download here,
+		// because EnsureSpecs then meant an unbounded flock and two 30s
+		// fetches in front of every request; this fetch is bounded in each of
+		// those respects instead: the lock is tried, not waited for (another
+		// process downloading means we step aside), the download runs under a
+		// short deadline, no prose reaches stderr, and any of those failing
+		// means proceeding without an opinion. The identity's token is used so
+		// what lands in the cache is the same plan-filtered spec `cio schema`
+		// would fetch, never an anonymous one that would mislead it later.
+		// One budget covers the whole branch — the token exchange as well as
+		// the download — so a stalled token endpoint cannot hold the request
+		// any longer than a stalled spec host can.
+		ctx, cancel := context.WithTimeout(cmd.Context(), preflightSpecFetchBudget)
+		defer cancel()
+		opts := specLoadOptions(ctx, c)
+		if c.ServiceAccountToken() != "" && opts.AccessToken == "" {
+			// The token could not be exchanged, or not within the budget.
+			// `cio schema` falls back to an anonymous fetch here; this check
+			// must not: an anonymous spec is the wrong thing to judge a
+			// plan-filtered identity against, and it would land in a partition
+			// the identity's reads never look in.
+			return nil
+		}
+		idx, err = routes.EnsurePathIndex(ctx, opts)
+		if err != nil {
+			return nil
+		}
 	}
 
 	// The route exists: nothing to block, so let the request proceed. The
