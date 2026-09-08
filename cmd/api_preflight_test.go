@@ -289,20 +289,31 @@ func TestAPIPreflight_NeverFetchesTheSpecItself(t *testing.T) {
 	}
 }
 
-// A cold cache means no opinion: the call proceeds, and still nothing is
-// fetched to form one.
-func TestAPIPreflight_ColdCacheIsInertAndSilent(t *testing.T) {
+// A cold cache is filled, once, so the check can judge — and the call it was
+// asked about is judged against what was just fetched.
+func TestAPIPreflight_ColdCacheFetchesOnceThenJudges(t *testing.T) {
 	server := newPreflightServer(t)
 
-	if _, _, err := executeCommand("api", "/v1/environments/456/campaigns/48/actions",
-		"--api-url", server.URL); err != nil {
-		t.Fatalf("a cold cache must not block the call, got: %v", err)
+	_, _, err := executeCommand("api", "/v1/environments/456/campaigns/48/actions",
+		"--api-url", server.URL)
+	if err == nil {
+		t.Fatal("expected the freshly fetched spec to reject the invented path")
 	}
-	if got := server.requested(); len(got) != 1 {
-		t.Errorf("expected the request to be sent, got %v", got)
+	if got := server.requested(); len(got) != 0 {
+		t.Errorf("no API request should have been made, got %v", got)
+	}
+	if got := server.specFetches(); len(got) != 2 {
+		t.Errorf("expected exactly one download of each spec, got %v", got)
+	}
+
+	// Warm now: the next check reads the cache and fetches nothing.
+	server.forget()
+	if _, _, err := executeCommand("api", "/v1/environments/456/campaigns/48/actions",
+		"--api-url", server.URL); err == nil {
+		t.Fatal("expected the cached spec to reject the invented path")
 	}
 	if got := server.specFetches(); len(got) != 0 {
-		t.Errorf("the check must not download specs to populate itself, got %v", got)
+		t.Errorf("a warm cache must not fetch, got %v", got)
 	}
 }
 

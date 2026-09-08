@@ -678,6 +678,39 @@ func TestParseJWTExpiry_OpaqueToken(t *testing.T) {
 	}
 }
 
+func TestJWTID_ValidJWT(t *testing.T) {
+	// Payload: {"jti":"sess-1","exp":1700000000}
+	token := "eyJhbGciOiJIUzI1NiJ9.eyJqdGkiOiJzZXNzLTEiLCJleHAiOjE3MDAwMDAwMDB9.signature"
+	id, ok := JWTID(token)
+	if !ok {
+		t.Fatal("expected a jti to be found")
+	}
+	if id != "sess-1" {
+		t.Errorf("expected sess-1, got %q", id)
+	}
+}
+
+func TestJWTID_MissingJTI(t *testing.T) {
+	// Payload: {"sub":"test"} — a JWT with no jti reports false, not an empty key.
+	if _, ok := JWTID("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.signature"); ok {
+		t.Fatal("expected no jti for a JWT without one")
+	}
+}
+
+func TestJWTID_EmptyJTI(t *testing.T) {
+	// Payload: {"jti":"","exp":1700000000} — present but empty is treated as absent,
+	// so it can never become a shared cache partition.
+	if _, ok := JWTID("eyJhbGciOiJIUzI1NiJ9.eyJqdGkiOiIiLCJleHAiOjE3MDAwMDAwMDB9.signature"); ok {
+		t.Fatal("expected an empty jti to be treated as absent")
+	}
+}
+
+func TestJWTID_OpaqueToken(t *testing.T) {
+	if _, ok := JWTID("sa_live_abc123"); ok {
+		t.Fatal("expected no jti for an opaque token")
+	}
+}
+
 func TestClient_Do_ValidateHeader(t *testing.T) {
 	// X-Validate: strict must be stamped on every request so the server
 	// rejects unknown JSON fields with a 400 instead of silently dropping

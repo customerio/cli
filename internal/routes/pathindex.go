@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -47,21 +48,14 @@ var pathItemVerbs = map[string]bool{
 
 // LoadPathIndexFromCache decodes the path templates out of whatever specs the
 // cache already holds. It reads files and nothing else: no download, no cache
-// lock, no metadata.
-//
-// EnsureSpecs, which LoadRegistry goes through, is the wrong tool in front of a
-// request. It takes an exclusive lock on the cache directory before reading
-// anything, and that lock is a plain flock — it cannot be bounded or
-// cancelled — so concurrent callers serialize behind whichever one holds it,
-// and the holder may sit through two sequential spec downloads first. A check
-// worth ~25ms must not be able to cost a minute, nor make parallel calls queue.
+// lock, no metadata — the common, ~25ms case for a check that runs before
+// every request.
 //
 // Reading without the lock is safe because cached specs are replaced by rename,
 // so a reader sees one whole version or the previous one, never a torn file.
-// The cost is that this reports what the cache knows rather than what the
-// server currently serves: a caller that needs freshness (`cio schema`) keeps
-// going through EnsureSpecs, and a caller checking a path treats a cold cache
-// as "no opinion".
+// It reports what the cache knows rather than what the server serves; a caller
+// that needs freshness (`cio schema`) goes through EnsureSpecs, and a caller
+// that finds the cache cold uses EnsurePathIndex to fill it, once.
 func LoadPathIndexFromCache(opts LoadRegistryOptions) (*PathIndex, error) {
 	cacheDir, err := opts.resolveCacheDir()
 	if err != nil {
@@ -82,6 +76,41 @@ func LoadPathIndexFromCache(opts LoadRegistryOptions) (*PathIndex, error) {
 
 	if len(idx.entries) == 0 {
 		return nil, fmt.Errorf("no cached API spec describes any route")
+	}
+	return idx, nil
+}
+
+// EnsurePathIndex fills a cold cache and indexes it. It goes through
+// EnsureSpecs — the one download path, so what it writes is exactly the spec
+// `cio schema` would have fetched for this identity — but in the bounded form a
+// caller in front of a request can afford:
+//
+//   - NonBlocking: another process already downloading means step aside at
+//     once (ErrCacheBusy), never queue behind it.
+//   - The caller's context deadline bounds the download itself.
+//   - Quiet: cache warnings stay off stderr, which the calling command keeps
+//     for structured errors.
+//
+// Any error means the caller has no spec to judge with, and should proceed
+// without an opinion rather than fail.
+func EnsurePathIndex(ctx context.Context, opts LoadRegistryOptions) (*PathIndex, error) {
+	opts.NonBlocking = true
+	opts.Quiet = true
+
+	journeysData, cdpData, err := EnsureSpecs(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	idx := &PathIndex{}
+	if err := idx.add(journeysData); err != nil {
+		return nil, err
+	}
+	if len(cdpData) > 0 {
+		_ = idx.add(cdpData)
+	}
+	if len(idx.entries) == 0 {
+		return nil, fmt.Errorf("API spec described no routes")
 	}
 	return idx, nil
 }

@@ -56,9 +56,12 @@ type LoadRegistryOptions struct {
 	// when authenticated. Do NOT pass the raw sa_live_ token here — it must
 	// be exchanged first via the client's EnsureAccessToken.
 	AccessToken string
-	// CacheKey is an opaque string used to isolate cached specs per identity
-	// (typically derived from the sa_live_ token). When set, specs are cached
-	// in a key-specific subdirectory to avoid cross-account contamination.
+	// CacheKey is an opaque string that isolates cached specs per identity, so
+	// one account's plan-filtered spec is never read back for another. When
+	// set, specs live in a subdirectory named by its hash. It must be stable
+	// for as long as the identity is: a service-account token qualifies, and
+	// so does a session JWT's jti — but not the JWT itself, whose bytes change
+	// every time the issuer re-signs it.
 	CacheKey string
 	// ForceRefresh bypasses TTL and re-downloads with ETag validation.
 	ForceRefresh bool
@@ -68,6 +71,28 @@ type LoadRegistryOptions struct {
 	TTL time.Duration
 	// HTTPClient overrides the HTTP client (for testing).
 	HTTPClient *http.Client
+	// NonBlocking makes EnsureSpecs give up with ErrCacheBusy when another
+	// process holds the cache lock, instead of waiting for it. A caller in
+	// front of a request wants this: if someone is already downloading, the
+	// right move is to step aside, not to queue behind them for however long
+	// their download takes.
+	NonBlocking bool
+	// Quiet keeps non-fatal cache warnings off stderr. Commands whose stderr
+	// is a JSON contract cannot have prose appear there.
+	Quiet bool
+}
+
+// ErrCacheBusy reports that another process holds the spec cache lock. It is
+// returned only when NonBlocking is set; otherwise EnsureSpecs waits.
+var ErrCacheBusy = errors.New("spec cache: another process is refreshing it")
+
+// warnf reports a non-fatal cache problem on stderr unless the caller asked
+// for quiet.
+func (o *LoadRegistryOptions) warnf(format string, args ...any) {
+	if o.Quiet {
+		return
+	}
+	fmt.Fprintf(os.Stderr, format, args...)
 }
 
 // specMeta holds per-spec cache metadata.
@@ -101,16 +126,16 @@ func (o *LoadRegistryOptions) resolveCacheDir() (string, error) {
 		base = filepath.Join(home, ".cio", specCacheSubdir)
 	}
 	if o.CacheKey != "" {
-		return filepath.Join(base, tokenCacheKey(o.CacheKey)), nil
+		return filepath.Join(base, cacheKeyDir(o.CacheKey)), nil
 	}
 	return base, nil
 }
 
-// tokenCacheKey returns a short, filesystem-safe hash of a token for use
-// as a cache subdirectory name. Different tokens produce different keys
-// so that personalized specs don't collide.
-func tokenCacheKey(token string) string {
-	h := sha256.Sum256([]byte(token))
+// cacheKeyDir returns a short, filesystem-safe subdirectory name for a cache
+// key: a hash, so a secret used as the key never lands on disk in the clear,
+// and distinct keys never share a directory.
+func cacheKeyDir(key string) string {
+	h := sha256.Sum256([]byte(key))
 	return "auth-" + hex.EncodeToString(h[:8])
 }
 
@@ -133,12 +158,24 @@ func (o *LoadRegistryOptions) resolveHTTPClient() *http.Client {
 	return &http.Client{Timeout: 30 * time.Second}
 }
 
-// lockCacheDir acquires an exclusive file lock on the cache directory.
-// Returns an unlock function that must be called when done.
-func lockCacheDir(cacheDir string) (unlock func(), err error) {
+// lockCacheDir acquires an exclusive file lock on the cache directory and
+// returns an unlock function that must be called when done. With nonBlocking
+// set, a lock held elsewhere yields ErrCacheBusy at once instead of a wait.
+//
+// The lock file doubles as a download lease with no expiry to manage: the
+// kernel releases a flock when its holder exits, so a downloader that dies
+// mid-fetch never leaves the cache locked.
+func lockCacheDir(cacheDir string, nonBlocking bool) (unlock func(), err error) {
 	lockPath := filepath.Join(cacheDir, "specs.lock")
-	unlock, err = filelock.Lock(lockPath, 0600)
+	if nonBlocking {
+		unlock, err = filelock.TryLock(lockPath, 0600)
+	} else {
+		unlock, err = filelock.Lock(lockPath, 0600)
+	}
 	if err != nil {
+		if errors.Is(err, filelock.ErrLocked) {
+			return nil, ErrCacheBusy
+		}
 		return nil, fmt.Errorf("acquire lock: %w", err)
 	}
 
@@ -155,7 +192,7 @@ func EnsureSpecs(ctx context.Context, opts LoadRegistryOptions) (journeys, cdp [
 		return nil, nil, fmt.Errorf("create cache dir: %w", err)
 	}
 
-	unlock, err := lockCacheDir(cacheDir)
+	unlock, err := lockCacheDir(cacheDir, opts.NonBlocking)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -171,7 +208,7 @@ func EnsureSpecs(ctx context.Context, opts LoadRegistryOptions) (journeys, cdp [
 	var errs []error
 
 	for i, src := range defaultSpecSources {
-		data, changed, specErr := ensureSpec(ctx, httpClient, cacheDir, baseURL, opts.AccessToken, src, meta, ttl, opts.ForceRefresh)
+		data, changed, specErr := ensureSpec(ctx, httpClient, cacheDir, baseURL, opts.AccessToken, src, meta, ttl, opts.ForceRefresh, opts.warnf)
 		if specErr != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", src.Name, specErr))
 			continue
@@ -184,7 +221,7 @@ func EnsureSpecs(ctx context.Context, opts LoadRegistryOptions) (journeys, cdp [
 
 	if updated {
 		if err := writeMeta(cacheDir, meta); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to write spec cache metadata: %v\n", err)
+			opts.warnf("warning: failed to write spec cache metadata: %v\n", err)
 		}
 	}
 
@@ -205,6 +242,7 @@ func ensureSpec(
 	meta *cacheMeta,
 	ttl time.Duration,
 	forceRefresh bool,
+	warnf func(format string, args ...any),
 ) (data []byte, changed bool, err error) {
 	filename := src.Name + ".json"
 	cachedPath := filepath.Join(cacheDir, filename)
@@ -236,7 +274,7 @@ func ensureSpec(
 		// Try stale cache on download failure.
 		data, readErr := os.ReadFile(cachedPath)
 		if readErr == nil {
-			fmt.Fprintf(os.Stderr, "warning: using stale cached %s (download failed: %v)\n", src.Name, dlErr)
+			warnf("warning: using stale cached %s (download failed: %v)\n", src.Name, dlErr)
 			return data, false, nil
 		}
 		return nil, false, dlErr
