@@ -1,6 +1,7 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -26,7 +27,10 @@ type paginationMeta struct {
 	Total      *int
 	HasMore    *bool
 	EmptyData  bool
-	DataKey    string
+	// DataLen is the number of records on this page: the length of the
+	// collection array, taken as the largest top-level array when the key is
+	// not one of the well-known names.
+	DataLen int
 }
 
 const maxAutoPages = 10000
@@ -44,6 +48,11 @@ func (c *Client) PageAll(cfg PageAllConfig) error {
 	}
 
 	page := cfg.StartPage
+	// The page size for the total-based stop is what the server actually
+	// returned on the first page, not --limit: servers clamp oversized limits,
+	// and trusting the flag would end the walk early. A later, final page may
+	// be shorter, so only the first page is read.
+	pageSize := 0
 
 	for {
 		params := copyParams(cfg.Params)
@@ -62,13 +71,16 @@ func (c *Client) PageAll(cfg PageAllConfig) error {
 		}
 
 		meta := extractPaginationMeta(result, cfg.Limit)
+		if pageSize == 0 {
+			pageSize = meta.DataLen
+		}
 
 		if meta.TotalPages != nil && page >= *meta.TotalPages {
 			return nil
 		}
 
-		if meta.Total != nil && cfg.Limit > 0 {
-			totalPages := int(math.Ceil(float64(*meta.Total) / float64(cfg.Limit)))
+		if meta.Total != nil && pageSize > 0 {
+			totalPages := int(math.Ceil(float64(*meta.Total) / float64(pageSize)))
 			if totalPages == 0 {
 				totalPages = 1
 			}
@@ -101,17 +113,16 @@ func extractPaginationMeta(data json.RawMessage, limit int) paginationMeta {
 		return meta
 	}
 
-	if raw, ok := obj["total_pages"]; ok {
-		var v int
-		if json.Unmarshal(raw, &v) == nil {
-			meta.TotalPages = &v
+	// Totals live either at the top level or, on Journeys list endpoints,
+	// under meta.pagination.
+	meta.TotalPages = intField(obj, "total_pages")
+	meta.Total = intField(obj, "total")
+	if pagination := nestedObject(obj, "meta", "pagination"); pagination != nil {
+		if meta.TotalPages == nil {
+			meta.TotalPages = intField(pagination, "total_pages")
 		}
-	}
-
-	if raw, ok := obj["total"]; ok {
-		var v int
-		if json.Unmarshal(raw, &v) == nil {
-			meta.Total = &v
+		if meta.Total == nil {
+			meta.Total = intField(pagination, "total")
 		}
 	}
 
@@ -123,19 +134,85 @@ func extractPaginationMeta(data json.RawMessage, limit int) paginationMeta {
 	}
 
 	for _, key := range []string{"data", "items", "results", "records", "entries", "campaigns"} {
-		if raw, ok := obj[key]; ok {
-			var arr []json.RawMessage
-			if json.Unmarshal(raw, &arr) == nil {
-				meta.DataKey = key
-				if len(arr) == 0 {
-					meta.EmptyData = true
-				}
-				break
-			}
+		raw, ok := obj[key]
+		if !ok {
+			continue
+		}
+		// A known collection key that is null is an empty page: Go backends
+		// emit null for a nil slice.
+		if isNull(raw) {
+			meta.EmptyData = true
+			return meta
+		}
+		if arr, ok := arrayField(obj, key); ok {
+			meta.DataLen = len(arr)
+			meta.EmptyData = len(arr) == 0
+			return meta
 		}
 	}
 
+	// Endpoints name their collection after the resource (imports, segments,
+	// ...). Without a known key, take the largest top-level array as the
+	// collection, so a response like {"imports": [], "meta": {...}} still ends
+	// the walk instead of running to maxAutoPages.
+	arrays := 0
+	for key := range obj {
+		arr, ok := arrayField(obj, key)
+		if !ok {
+			continue
+		}
+		arrays++
+		meta.DataLen = max(meta.DataLen, len(arr))
+	}
+	meta.EmptyData = arrays > 0 && meta.DataLen == 0
+
 	return meta
+}
+
+func intField(obj map[string]json.RawMessage, key string) *int {
+	raw, ok := obj[key]
+	if !ok {
+		return nil
+	}
+	var v int
+	if json.Unmarshal(raw, &v) != nil {
+		return nil
+	}
+	return &v
+}
+
+func isNull(raw json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
+}
+
+// arrayField returns the field only when it is syntactically an array.
+// json.Unmarshal accepts null into a slice, so an unrelated null field
+// ("next": null) would otherwise read as an empty collection.
+func arrayField(obj map[string]json.RawMessage, key string) ([]json.RawMessage, bool) {
+	raw, ok := obj[key]
+	if !ok || !bytes.HasPrefix(bytes.TrimSpace(raw), []byte("[")) {
+		return nil, false
+	}
+	var arr []json.RawMessage
+	if json.Unmarshal(raw, &arr) != nil {
+		return nil, false
+	}
+	return arr, true
+}
+
+func nestedObject(obj map[string]json.RawMessage, keys ...string) map[string]json.RawMessage {
+	for _, key := range keys {
+		raw, ok := obj[key]
+		if !ok {
+			return nil
+		}
+		var next map[string]json.RawMessage
+		if json.Unmarshal(raw, &next) != nil {
+			return nil
+		}
+		obj = next
+	}
+	return obj
 }
 
 func copyParams(params map[string]string) map[string]string {
