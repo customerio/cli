@@ -202,8 +202,11 @@ real endpoints plus the `cio schema` command that lists them — so treat it as
 rather than trying another spelling. A path that exists only for another method
 reports that method and the `-X` flag to use.
 
-A few real endpoints are absent from the spec. If you know the path exists,
-resend it with `--no-preflight`.
+`--no-preflight` skips the check; it does not make a missing endpoint exist. An
+unknown path is answered by the web app with its HTML page and a 200, so forcing
+a guessed path returns no data. Reserve the flag for the few real endpoints the
+spec omits, where you already know the path; otherwise run `cio schema
+<resource>` and use a documented endpoint.
 
 ## Retry Behavior
 

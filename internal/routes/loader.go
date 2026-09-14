@@ -146,6 +146,14 @@ func LoadRegistryFromData(data []byte) (*Registry, error) {
 	return reg, nil
 }
 
+// ResourceFor returns the resource name a path belongs to, as
+// `cio schema <resource>` takes it, or "" for a path outside any scope.
+// Concrete ids are accepted in place of templates.
+func ResourceFor(path string) string {
+	resource, _ := deriveFromWalkedPath(path, "")
+	return resource
+}
+
 // deriveFromWalkedPath extracts the CLI resource name and method name from an
 // httprouter-style path.
 //

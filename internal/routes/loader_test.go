@@ -308,3 +308,19 @@ func TestStripScopePrefix(t *testing.T) {
 		})
 	}
 }
+
+func TestResourceForReadsConcreteAndTemplatedPaths(t *testing.T) {
+	cases := map[string]string{
+		"/v1/environments/456/topics":                 "topics",
+		"/v1/environments/456/campaigns/97/subjects":  "campaigns",
+		"/v1/environments/{environment_id}/campaigns": "campaigns",
+		"/cdp/api/workspaces/12/sources":              "sources",
+		"/v1/login":                                   "",
+		"/health":                                     "",
+	}
+	for path, want := range cases {
+		if got := ResourceFor(path); got != want {
+			t.Errorf("ResourceFor(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
