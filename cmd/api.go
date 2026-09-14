@@ -50,7 +50,7 @@ Examples:
 func init() {
 	apiCmd.Flags().StringP("method", "X", "", "HTTP method (default: GET, or POST if --json or --file is provided)")
 	apiCmd.Flags().StringArray("file", nil, "Send the request as multipart/form-data with a file part: --file @path, or --file field=@path to name the part (repeatable). --json then supplies the request's other form fields")
-	apiCmd.Flags().Bool("no-preflight", false, "Send the request even if the path is absent from the API spec")
+	apiCmd.Flags().Bool("no-preflight", false, "Send the request even if the path is absent from the API spec; it cannot make a missing endpoint exist")
 	rootCmd.AddCommand(apiCmd)
 }
 
@@ -315,13 +315,21 @@ func preflightPath(cmd *cobra.Command, c *client.Client, httpMethod, resolvedPat
 
 	suggestions := idx.Suggest(resolvedPath, 5)
 	hint := "run 'cio schema' to list resources"
-	if len(suggestions) > 0 && suggestions[0].Resource != "" {
-		hint = fmt.Sprintf("run 'cio schema %s' to list that resource's endpoints", suggestions[0].Resource)
+	// Suggest ranks by shared leading segments, so an unknown resource still
+	// gets a neighbour from under the same scope — a different resource.
+	if requested := routes.ResourceFor(resolvedPath); requested != "" {
+		for _, s := range suggestions {
+			if s.Resource == requested {
+				hint = fmt.Sprintf("run 'cio schema %s' to list that resource's endpoints", requested)
+				break
+			}
+		}
 	}
 	// The spec omits a few real endpoints, and for those `cio schema` cannot
 	// list what it does not describe — so the way past a wrong rejection has to
 	// be in the message, not only in the details below.
-	hint += ", or resend with --no-preflight if you know the endpoint exists"
+	hint += ". --no-preflight resends without this check, but it cannot make a missing endpoint exist: " +
+		"an unknown path returns the app's HTML page rather than JSON, so reserve it for an endpoint you know the spec omits"
 
 	closest := make([]string, 0, len(suggestions))
 	for _, s := range suggestions {

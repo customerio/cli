@@ -10,12 +10,16 @@ import (
 
 // preflightSpec is a Journeys OpenAPI fixture with enough of the campaigns
 // resource to exercise the pre-send path check: a collection with two verbs and
-// a single-campaign read.
+// a single-campaign read, plus an alphabetically earlier second resource the
+// suggestion ranking would otherwise reach for.
 func preflightSpec() string {
 	return `{
 		"openapi": "3.1.0",
 		"info": {"title": "Test", "version": "1.0.0"},
 		"paths": {
+			"/v1/environments/{environment_id}/all_metrics": {
+				"get": {"summary": "List metrics"}
+			},
 			"/v1/environments/{environment_id}/campaigns": {
 				"get": {"summary": "List campaigns"},
 				"post": {"summary": "Create campaign"}
@@ -350,5 +354,38 @@ func TestAPIPreflight_FailsOpenWhenSpecUnavailable(t *testing.T) {
 	mu.Unlock()
 	if len(got) != 1 || got[0] != "/v1/environments/456/campaigns" {
 		t.Errorf("expected the request to be sent, got %v", got)
+	}
+}
+
+// The nearest route under the same scope is some other resource entirely.
+func TestAPIPreflight_DoesNotNameAnUnrelatedResource(t *testing.T) {
+	server := setupPreflightTest(t)
+
+	_, _, err := executeCommand("api", "/v1/environments/456/topics", "--api-url", server.URL)
+	if err == nil {
+		t.Fatal("expected an unknown resource to be rejected before sending")
+	}
+	if strings.Contains(err.Error(), "cio schema all_metrics") {
+		t.Errorf("error must not point at a resource the path never named, got: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), "run 'cio schema' to list resources") {
+		t.Errorf("error should fall back to listing resources, got: %s", err.Error())
+	}
+}
+
+// Without this, a rejected guess is just resent with the check off.
+func TestAPIPreflight_CautionsAgainstForcingAGuessedPath(t *testing.T) {
+	server := setupPreflightTest(t)
+
+	_, _, err := executeCommand("api", "/v1/environments/456/campaigns/48/actions",
+		"--api-url", server.URL)
+	if err == nil {
+		t.Fatal("expected an invented sub-path to be rejected before sending")
+	}
+	if !strings.Contains(err.Error(), "cannot make a missing endpoint exist") {
+		t.Errorf("error should say --no-preflight does not create the endpoint, got: %s", err.Error())
+	}
+	if !strings.Contains(err.Error(), "HTML page rather than JSON") {
+		t.Errorf("error should name what forcing it returns, got: %s", err.Error())
 	}
 }
