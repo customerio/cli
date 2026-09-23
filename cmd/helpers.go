@@ -100,7 +100,7 @@ func doPageAll(cmd *cobra.Command, c *client.Client, path string, params map[str
 		Path:      path,
 		Params:    params,
 		Limit:     limit,
-		StartPage: max(startPage, 1),
+		StartPage: startPage,
 		Writer:    w,
 	})
 	if err != nil {
