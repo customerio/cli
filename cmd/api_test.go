@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/customerio/cli/internal/client"
 )
@@ -541,6 +544,88 @@ func TestAPI_PostWithBody(t *testing.T) {
 	}
 }
 
+func TestAPI_JQFailureAfterWriteStillSucceeds(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	stdout, stderr, err := executeCommand("api", "/v1/environments/{environment_id}/object_types",
+		"--api-url", server.URL,
+		"--params", `{"environment_id": "456"}`,
+		"--json", `{"object_type": {"name": "Users"}}`,
+		"--jq", ".object_type[] | .id")
+	if err != nil {
+		t.Fatalf("a completed write must not fail on --jq: %v", err)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("expected the full response on stdout: %v", err)
+	}
+	if result["method"] != "POST" {
+		t.Errorf("expected the POST response, got %v", result["method"])
+	}
+	if !strings.Contains(stderr, `"code":"JQ_UNREADABLE_AFTER_WRITE"`) || !strings.Contains(stderr, "request succeeded") {
+		t.Errorf("expected a warning that the write succeeded, got %q", stderr)
+	}
+	if strings.Contains(stderr, `"error":true`) {
+		t.Errorf("warning must not read as an error envelope, got %q", stderr)
+	}
+}
+
+func TestAPI_JQAllNullsAfterWriteWarns(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	// The create response nests its fields, so a flat projection reads only nulls.
+	stdout, stderr, err := executeCommand("api", "/v1/environments/{environment_id}/object_types",
+		"--api-url", server.URL,
+		"--params", `{"environment_id": "456"}`,
+		"--json", `{"object_type": {"name": "Users"}}`,
+		"--jq", "{id, name, slug}")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.TrimSpace(stdout) != `{"id":null,"name":null,"slug":null}` {
+		t.Errorf("expected the jq output on stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, `"code":"JQ_UNREADABLE_AFTER_WRITE"`) || !strings.Contains(stderr, "method, path, query, request_uri") {
+		t.Errorf("expected a warning naming the response's keys, got %q", stderr)
+	}
+}
+
+func TestAPI_JQMatchingWriteIsUnchanged(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	stdout, stderr, err := executeCommand("api", "/v1/environments/{environment_id}/object_types",
+		"--api-url", server.URL,
+		"--params", `{"environment_id": "456"}`,
+		"--json", `{"object_type": {"name": "Users"}}`,
+		"--jq", "{method, path}")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.TrimSpace(stdout) != `{"method":"POST","path":"/v1/environments/456/object_types"}` {
+		t.Errorf("expected the projection, got %q", stdout)
+	}
+	if stderr != "" {
+		t.Errorf("expected no warning, got %q", stderr)
+	}
+}
+
+func TestAPI_JQFailureAfterReadStillFails(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	_, _, err := executeCommand("api", "/v1/environments/{environment_id}/campaigns",
+		"--api-url", server.URL,
+		"--params", `{"environment_id": "456"}`,
+		"--jq", ".campaigns[] | .id")
+	if err == nil {
+		t.Fatal("expected a --jq failure on a GET to fail the command")
+	}
+}
+
 func TestAPI_ExplicitMethod(t *testing.T) {
 	server, cleanup := setupAPITest(t)
 	defer cleanup()
@@ -925,5 +1010,148 @@ func TestSchema_SendsAccessTokenOnSpecFetch(t *testing.T) {
 	mu.Unlock()
 	if got != "Bearer jwt-agent-token" {
 		t.Fatalf("spec fetch must send CIO_ACCESS_TOKEN as Bearer auth so the server can plan-filter the spec; got %q", got)
+	}
+}
+
+func TestAPI_WriteOutcomeUnknownWarning(t *testing.T) {
+	cases := []struct {
+		method      string
+		status      int
+		wantWarning bool
+	}{
+		{"POST", http.StatusBadGateway, true},
+		{"POST", http.StatusUnprocessableEntity, false},
+		{"GET", http.StatusBadGateway, false},
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("%s %d", tc.method, tc.status), func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			t.Setenv("CIO_ACCESS_TOKEN", "jwt-test-session")
+			t.Setenv("CIO_MAX_RETRIES", "0")
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(`{"errors":[{"detail":"boom"}]}`))
+			}))
+			defer server.Close()
+
+			_, stderr, err := executeCommand("api", "/v1/environments/{environment_id}/object_types",
+				"--api-url", server.URL,
+				"-X", tc.method,
+				"--params", `{"environment_id": "456"}`)
+			if err == nil {
+				t.Fatal("expected the command to fail")
+			}
+			if got := strings.Contains(stderr, `"code":"WRITE_OUTCOME_UNKNOWN"`); got != tc.wantWarning {
+				t.Errorf("warning present = %v, want %v; stderr %q", got, tc.wantWarning, stderr)
+			}
+		})
+	}
+}
+
+func TestAPI_WriteTimeoutWarnsOutcomeUnknown(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CIO_ACCESS_TOKEN", "jwt-test-session")
+	t.Setenv("CIO_MAX_RETRIES", "0")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		select {
+		case <-r.Context().Done():
+		case <-time.After(500 * time.Millisecond):
+		}
+	}))
+	defer server.Close()
+	defer func() { _ = rootCmd.PersistentFlags().Set("timeout", client.DefaultTimeout.String()) }()
+
+	_, stderr, err := executeCommand("api", "/v1/environments/{environment_id}/object_types",
+		"--api-url", server.URL,
+		"--timeout", "50ms",
+		"--params", `{"environment_id": "456"}`,
+		"--json", `{"object_type": {"name": "Users"}}`)
+	if err == nil {
+		t.Fatal("expected the command to time out")
+	}
+	if !strings.Contains(stderr, `"code":"WRITE_OUTCOME_UNKNOWN"`) {
+		t.Errorf("expected an outcome-unknown warning, got %q", stderr)
+	}
+}
+
+func TestAPI_TokenExchangeFailureIsNotOutcomeUnknown(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CIO_TOKEN", "sa_live_test123")
+	t.Setenv("CIO_ACCESS_TOKEN", "")
+	t.Setenv("CIO_MAX_RETRIES", "0")
+	writes := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/service_accounts/oauth/token" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		writes++
+	}))
+	defer server.Close()
+
+	_, stderr, err := executeCommand("api", "/v1/environments/{environment_id}/object_types",
+		"--api-url", server.URL,
+		"--params", `{"environment_id": "456"}`,
+		"--json", `{"object_type": {"name": "Users"}}`)
+	if err == nil {
+		t.Fatal("expected the token exchange to fail")
+	}
+	if writes != 0 {
+		t.Fatalf("expected no write to be sent, got %d", writes)
+	}
+	if strings.Contains(stderr, "WRITE_OUTCOME_UNKNOWN") {
+		t.Errorf("a write that was never sent must not warn, got %q", stderr)
+	}
+}
+
+func TestAPI_JQUnreadProjectionAfterWriteWarns(t *testing.T) {
+	cases := map[string]struct{ jq, want string }{
+		"no values":      {`select(.method == "GET")`, "returned no values"},
+		"missing fields": {"{method, id}", "fields the response does not have (id)"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			server, cleanup := setupAPITest(t)
+			defer cleanup()
+
+			_, stderr, err := executeCommand("api", "/v1/environments/{environment_id}/object_types",
+				"--api-url", server.URL,
+				"--params", `{"environment_id": "456"}`,
+				"--json", `{"object_type": {"name": "Users"}}`,
+				"--jq", tc.jq)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !strings.Contains(stderr, `"code":"JQ_UNREADABLE_AFTER_WRITE"`) || !strings.Contains(stderr, tc.want) {
+				t.Errorf("expected a warning containing %q, got %q", tc.want, stderr)
+			}
+		})
+	}
+}
+
+func TestAPI_JQOnEmptyWriteResponseWarns(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CIO_ACCESS_TOKEN", "jwt-test-session")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	stdout, stderr, err := executeCommand("api", "/v1/environments/{environment_id}/object_types",
+		"--api-url", server.URL,
+		"-X", "PUT",
+		"--params", `{"environment_id": "456"}`,
+		"--json", `{"object_type": {"name": "Users"}}`,
+		"--jq", ".id")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.TrimSpace(stdout) != "null" {
+		t.Errorf("expected the jq output on stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, "the response has no body") {
+		t.Errorf("expected a warning that the response has no body, got %q", stderr)
 	}
 }

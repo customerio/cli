@@ -210,4 +210,6 @@ spec omits, where you already know the path; otherwise run `cio schema
 
 ## Retry Behavior
 
-Automatic retries on HTTP 429 and 5xx with exponential backoff and jitter. Default: 3 retries. Respects `Retry-After` headers.
+Automatic retries on HTTP 429, and on 5xx for GET and HEAD only, with exponential backoff and jitter. Default: 3 retries. Respects `Retry-After` headers.
+
+A write (POST, PUT, PATCH, DELETE) is not retried after a 5xx, because it may already be saved. On any command that writes, a `WRITE_OUTCOME_UNKNOWN` warning on stderr means a write failed after it was sent (a 5xx, or a timeout or dropped connection before the full response arrived): read the resource before you send the write again. On any command that writes, a `JQ_UNREADABLE_AFTER_WRITE` warning means the write succeeded but `--jq` could not read the response: either jq failed and the full response is printed instead, or its output had no values, only nulls, or nulls for fields the response does not have, and the warning lists the response's top-level keys.

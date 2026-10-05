@@ -31,6 +31,10 @@ type paginationMeta struct {
 	// collection array, taken as the largest top-level array when the key is
 	// not one of the well-known names.
 	DataLen int
+	// Continuation is the cursor of an endpoint that pages by a
+	// "continuation" query param instead of page numbers; nil when the
+	// response carries none, "" on the last page.
+	Continuation *string
 }
 
 const maxAutoPages = 10000
@@ -40,6 +44,8 @@ func (c *Client) PageAll(cfg PageAllConfig) error {
 	if cfg.Ctx == nil {
 		cfg.Ctx = context.Background()
 	}
+	// A page the caller did not choose is only a guess at the first page.
+	guessedFirstPage := cfg.StartPage <= 0
 	if cfg.StartPage <= 0 {
 		cfg.StartPage = 1
 	}
@@ -53,10 +59,19 @@ func (c *Client) PageAll(cfg PageAllConfig) error {
 	// and trusting the flag would end the walk early. A later, final page may
 	// be shorter, so only the first page is read.
 	pageSize := 0
+	// Set once a response carries a cursor; from then on the cursor, not the
+	// page number, selects the next page.
+	cursor := ""
+	seen := map[string]bool{}
 
 	for {
 		params := copyParams(cfg.Params)
-		params["page"] = strconv.Itoa(page)
+		if cursor != "" {
+			delete(params, "page")
+			params["continuation"] = cursor
+		} else {
+			params["page"] = strconv.Itoa(page)
+		}
 		if cfg.Limit > 0 {
 			params["limit"] = strconv.Itoa(cfg.Limit)
 		}
@@ -65,14 +80,51 @@ func (c *Client) PageAll(cfg PageAllConfig) error {
 		if err != nil {
 			return err
 		}
+		meta := extractPaginationMeta(result, cfg.Limit)
+
+		// Some cursor endpoints still honour page on the first request and
+		// count it from 0 (/backfills), so the guessed page=1 skipped the
+		// newest page. Refetch it without page and let the cursor take over.
+		if guessedFirstPage && cursor == "" && meta.Continuation != nil {
+			delete(params, "page")
+			if result, err = c.Do(cfg.Ctx, cfg.Method, cfg.Path, params, nil); err != nil {
+				return err
+			}
+			meta = extractPaginationMeta(result, cfg.Limit)
+		}
+		guessedFirstPage = false
 
 		if _, err := fmt.Fprintf(cfg.Writer, "%s\n", result); err != nil {
 			return fmt.Errorf("write page %d: %w", page, err)
 		}
 
-		meta := extractPaginationMeta(result, cfg.Limit)
 		if pageSize == 0 {
 			pageSize = meta.DataLen
+		}
+
+		// Mid-walk, a cursor that is missing or null ends it like "": the
+		// page-number stops below would resend the last cursor.
+		if meta.Continuation == nil && cursor != "" {
+			return nil
+		}
+		// A cursor endpoint ignores page, so the page-number stops below
+		// would refetch the first page. An empty page is not the end either:
+		// a cursor can step past a stretch with no matches.
+		if meta.Continuation != nil {
+			next := *meta.Continuation
+			if next == "" {
+				return nil
+			}
+			if seen[next] {
+				return fmt.Errorf("pagination stopped at page %d: the server returned continuation %q twice", page, next)
+			}
+			seen[next] = true
+			cursor = next
+			if page >= cfg.StartPage+maxAutoPages-1 {
+				return nil
+			}
+			page++
+			continue
 		}
 
 		if meta.TotalPages != nil && page >= *meta.TotalPages {
@@ -117,6 +169,12 @@ func extractPaginationMeta(data json.RawMessage, limit int) paginationMeta {
 	// under meta.pagination.
 	meta.TotalPages = intField(obj, "total_pages")
 	meta.Total = intField(obj, "total")
+	// Only meta.continuation is a cursor the walk can follow. A broadcast's
+	// next profiles carries one under meta.pagination, but it only pages with
+	// the from returned beside it and repeats rows either way.
+	if m := nestedObject(obj, "meta"); m != nil {
+		meta.Continuation = stringField(m, "continuation")
+	}
 	if pagination := nestedObject(obj, "meta", "pagination"); pagination != nil {
 		if meta.TotalPages == nil {
 			meta.TotalPages = intField(pagination, "total_pages")
@@ -175,6 +233,20 @@ func intField(obj map[string]json.RawMessage, key string) *int {
 		return nil
 	}
 	var v int
+	if json.Unmarshal(raw, &v) != nil {
+		return nil
+	}
+	return &v
+}
+
+func stringField(obj map[string]json.RawMessage, key string) *string {
+	raw, ok := obj[key]
+	// json.Unmarshal leaves a string "" for null, which would read as a
+	// last-page cursor and end the walk after one page.
+	if !ok || isNull(raw) {
+		return nil
+	}
+	var v string
 	if json.Unmarshal(raw, &v) != nil {
 		return nil
 	}

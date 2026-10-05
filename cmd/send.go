@@ -325,12 +325,12 @@ func runTrackSend(cmd *cobra.Command, sendPath string, body json.RawMessage) err
 		Timeout:             timeout,
 	})
 	if err != nil {
-		return handleAPIError(err)
+		return handleWriteError(cmd, http.MethodPost, err)
 	}
 
 	watch, _ := cmd.Flags().GetBool("watch")
 	if !watch {
-		return output.FprintProcess(cmd.OutOrStdout(), result, jq, GetRawFlag(cmd))
+		return printWriteResult(cmd, http.MethodPost, result, jq)
 	}
 
 	// Extract the delivery_id so we can poll its status.
@@ -338,10 +338,15 @@ func runTrackSend(cmd *cobra.Command, sendPath string, body json.RawMessage) err
 		DeliveryID string `json:"delivery_id"`
 	}
 	if err := json.Unmarshal(result, &queued); err != nil || queued.DeliveryID == "" {
-		return fmt.Errorf("--watch: could not extract delivery_id from send response")
+		printWarning(cmd, "WATCH_FAILED_AFTER_SEND", "the send was accepted, but --watch could not find its delivery_id, so the send response is printed instead; do not send it again")
+		return output.FprintJSON(cmd.OutOrStdout(), result)
 	}
 
-	return watchDelivery(cmd, envID, queued.DeliveryID)
+	if err := watchDelivery(cmd, envID, queued.DeliveryID); err != nil {
+		printWarning(cmd, "WATCH_FAILED_AFTER_SEND", fmt.Sprintf("the send was accepted as delivery %s; only watching its status failed, so do not send it again", queued.DeliveryID))
+		return err
+	}
+	return nil
 }
 
 // isTrackSendCommand returns true for commands that send via the track API
@@ -416,7 +421,7 @@ func watchDelivery(cmd *cobra.Command, envID, deliveryID string) error {
 			}
 			if terminal, state := isTerminalDelivery(result); terminal {
 				fmt.Fprintf(stderr, " email %s!\n", state)
-				return output.FprintProcess(cmd.OutOrStdout(), result, jq, GetRawFlag(cmd))
+				return printWriteResult(cmd, http.MethodPost, result, jq)
 			}
 			fmt.Fprint(stderr, ".")
 		}

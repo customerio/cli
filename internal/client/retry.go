@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"math"
 	"math/rand/v2"
 	"net/http"
@@ -42,9 +43,38 @@ func DefaultRetryConfig() RetryConfig {
 	}
 }
 
-// IsRetryable returns true if the given HTTP status code should be retried.
-func IsRetryable(statusCode int) bool {
-	return statusCode == http.StatusTooManyRequests || statusCode >= http.StatusInternalServerError
+var (
+	errTokenExchange = errors.New("token exchange failed")
+	// errResponseLost marks a request that left the machine but whose response
+	// never fully arrived.
+	errResponseLost = errors.New("response lost")
+)
+
+// IsReadOnlyMethod reports whether a request with this method changes nothing.
+func IsReadOnlyMethod(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead
+}
+
+// IsRetryable retries a write only on 429, because after a 5xx it may already
+// be saved and sending it again can duplicate it.
+func IsRetryable(method string, statusCode int) bool {
+	if statusCode == http.StatusTooManyRequests {
+		return true
+	}
+	return IsReadOnlyMethod(method) && statusCode >= http.StatusInternalServerError
+}
+
+// MayHaveApplied reports whether the server may have carried out a request
+// that failed: it answered 5xx, or its response never fully arrived.
+func MayHaveApplied(err error) bool {
+	if errors.Is(err, errTokenExchange) {
+		return false
+	}
+	if errors.Is(err, errResponseLost) {
+		return true
+	}
+	var apiErr *APIError
+	return errors.As(err, &apiErr) && apiErr.StatusCode >= http.StatusInternalServerError
 }
 
 // ParseRetryAfter parses the Retry-After header value.

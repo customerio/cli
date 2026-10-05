@@ -59,16 +59,16 @@ func DoTrack(ctx context.Context, req TrackRequest) (json.RawMessage, error) {
 	httpReq.Header.Set(WorkspaceIDHeader, req.WorkspaceID)
 	setStandardHeaders(httpReq)
 
-	resp, err := httpClient.Do(httpReq)
+	resp, err := sendTracked(httpClient, httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
+		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	const maxResponseSize = 10 << 20 // 10 MB
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
+		return nil, fmt.Errorf("read response: %w: %w", errResponseLost, err)
 	}
 
 	if resp.StatusCode >= http.StatusBadRequest {

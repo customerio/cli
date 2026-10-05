@@ -489,7 +489,7 @@ func runAuthSignupVerify(cmd *cobra.Command, args []string) error {
 
 	result, err := client.PostAnonymous(cmd.Context(), baseURL, "/v1/account_signup/code", body, timeout)
 	if err != nil {
-		return handleAPIError(err)
+		return handleWriteError(cmd, "POST", err)
 	}
 
 	// Persist the bootstrap token so subsequent cio calls are authenticated.
@@ -498,7 +498,7 @@ func runAuthSignupVerify(cmd *cobra.Command, args []string) error {
 	// the response so the caller can capture the token manually.
 	saveErr := saveSignupCredentials(result, body, baseURL)
 
-	if err := output.FprintProcess(cmd.OutOrStdout(), result, GetJQFlag(cmd), GetRawFlag(cmd)); err != nil {
+	if err := printWriteResult(cmd, "POST", result, GetJQFlag(cmd)); err != nil {
 		return err
 	}
 	if saveErr != nil {
@@ -594,10 +594,10 @@ func runSignupRequest(cmd *cobra.Command, path string) error {
 
 	result, err := client.PostAnonymous(cmd.Context(), baseURL, path, body, timeout)
 	if err != nil {
-		return handleAPIError(err)
+		return handleWriteError(cmd, "POST", err)
 	}
 
-	return output.FprintProcess(cmd.OutOrStdout(), result, GetJQFlag(cmd), GetRawFlag(cmd))
+	return printWriteResult(cmd, "POST", result, GetJQFlag(cmd))
 }
 
 // loadStoredServiceAccountToken reads the saved sa_live_ token from

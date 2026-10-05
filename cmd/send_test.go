@@ -414,6 +414,57 @@ func TestSend_JQFilter(t *testing.T) {
 	}
 }
 
+func TestSend_JQFailureAfterSendStillSucceeds(t *testing.T) {
+	_, cleanup := setupSendTest(t, "sa_live_test123", "123")
+	defer cleanup()
+
+	stdout, stderr, err := executeCommand("send", "email",
+		"--environment-id", "123",
+		"--token", "sa_live_test123",
+		"--to", "user@example.com",
+		"--from", "Acme <noreply@example.com>",
+		"--subject", "Hello World",
+		"--body", "<h1>Hi</h1>",
+		"--jq", ".delivery[]")
+	if err != nil {
+		t.Fatalf("a completed send must not fail on --jq: %v", err)
+	}
+	if !strings.Contains(stdout, "RKalBAUAAZ21_test==") {
+		t.Errorf("expected the full response on stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, `"code":"JQ_UNREADABLE_AFTER_WRITE"`) {
+		t.Errorf("expected a warning that the send succeeded, got %q", stderr)
+	}
+}
+
+func TestSend_ServerErrorWarnsOutcomeUnknown(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CIO_TOKEN", "sa_live_test123")
+	t.Setenv("CIO_ACCESS_TOKEN", "")
+	t.Setenv("CIO_ENVIRONMENT_ID", "")
+	sent := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sent++
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer server.Close()
+	t.Setenv("CIO_TRACK_URL", server.URL)
+
+	_, stderr, err := executeCommand("send", "email",
+		"--environment-id", "123",
+		"--token", "sa_live_test123",
+		"--json", `{"transactional_message_id":1,"identifiers":{"email":"test@example.com"}}`)
+	if err == nil {
+		t.Fatal("expected the send to fail")
+	}
+	if sent != 1 {
+		t.Errorf("expected exactly one send attempt, got %d", sent)
+	}
+	if !strings.Contains(stderr, `"code":"WRITE_OUTCOME_UNKNOWN"`) {
+		t.Errorf("expected an outcome-unknown warning, got %q", stderr)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Env var fallbacks
 // ---------------------------------------------------------------------------
@@ -548,6 +599,31 @@ func TestSend_Watch_RetriesToGetTerminalStatus(t *testing.T) {
 	}
 	if result["state"] != "failed" {
 		t.Errorf("expected state=failed, got %v", result["state"])
+	}
+}
+
+func TestSend_WatchFailureSaysSendWasAccepted(t *testing.T) {
+	_, cleanup := setupSendTest(t, "sa_live_test123", "123")
+	defer cleanup()
+
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer apiServer.Close()
+	t.Setenv("CIO_API_URL", apiServer.URL)
+	t.Setenv("CIO_ACCESS_TOKEN", "fake-access-token-for-test")
+	t.Setenv("CIO_MAX_RETRIES", "0")
+
+	_, stderr, err := executeCommand("send", "email",
+		"--environment-id", "123",
+		"--token", "sa_live_test123",
+		"--json", `{"transactional_message_id":1,"identifiers":{"email":"test@example.com"}}`,
+		"-w")
+	if err == nil {
+		t.Fatal("expected the watch to fail")
+	}
+	if !strings.Contains(stderr, `"code":"WATCH_FAILED_AFTER_SEND"`) || !strings.Contains(stderr, "RKalBAUAAZ21_test==") {
+		t.Errorf("expected a warning that the send was accepted, got %q", stderr)
 	}
 }
 
