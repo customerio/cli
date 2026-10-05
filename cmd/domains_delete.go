@@ -61,7 +61,7 @@ func runDomainsDelete(cmd *cobra.Command, args []string) error {
 
 	_, err = c.Do(cmd.Context(), "DELETE", path, nil, nil)
 	if err != nil {
-		return handleAPIError(err)
+		return handleWriteError(cmd, "DELETE", err)
 	}
 	return output.FprintJSON(cmd.OutOrStdout(), map[string]any{
 		"deleted":   true,

@@ -72,7 +72,7 @@ func runDomainsAdd(cmd *cobra.Command, args []string) error {
 
 	result, err := c.Do(cmd.Context(), "POST", path, nil, body)
 	if err != nil {
-		return handleAPIError(err)
+		return handleWriteError(cmd, "POST", err)
 	}
-	return output.FprintProcess(cmd.OutOrStdout(), result, GetJQFlag(cmd), GetRawFlag(cmd))
+	return printWriteResult(cmd, "POST", result, GetJQFlag(cmd))
 }

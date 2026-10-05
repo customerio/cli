@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/customerio/cli/internal/useragent"
@@ -179,7 +181,7 @@ func (c *Client) EnsureAccessToken(ctx context.Context) (string, error) {
 	// Exchange sa_live_ credential for a JWT.
 	token, expiresIn, err := c.exchangeToken(ctx)
 	if err != nil {
-		return "", fmt.Errorf("token exchange failed: %w", err)
+		return "", fmt.Errorf("%w: %w", errTokenExchange, err)
 	}
 
 	c.accessToken = token
@@ -498,7 +500,7 @@ func (c *Client) DoWithBody(ctx context.Context, method, path string, params map
 			return nil, err
 		}
 
-		if !IsRetryable(apiErr.StatusCode) {
+		if !IsRetryable(method, apiErr.StatusCode) {
 			return nil, err
 		}
 		lastErr = err
@@ -512,6 +514,23 @@ func (c *Client) DoWithBody(ctx context.Context, method, path string, params map
 type Body struct {
 	ContentType string
 	Bytes       []byte
+}
+
+// sendTracked sends req and marks an error that came after the request left
+// the machine, since only then can the server have acted on it.
+func sendTracked(httpClient *http.Client, req *http.Request) (*http.Response, error) {
+	var sent atomic.Bool
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
+		WroteHeaders: func() { sent.Store(true) },
+	}))
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		if sent.Load() {
+			return nil, fmt.Errorf("http request: %w: %w", errResponseLost, err)
+		}
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	return resp, nil
 }
 
 // doOnce executes a single HTTP request (no retry).
@@ -537,15 +556,15 @@ func (c *Client) doOnce(ctx context.Context, method, rawURL, accessToken string,
 	}
 	setStandardHeaders(req)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := sendTracked(c.httpClient, req)
 	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
+		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
+		return nil, fmt.Errorf("read response: %w: %w", errResponseLost, err)
 	}
 
 	if resp.StatusCode >= http.StatusBadRequest {
@@ -638,15 +657,15 @@ func PostAnonymous(ctx context.Context, baseURL, path string, body json.RawMessa
 	req.Header.Set("Accept", "application/json")
 	setStandardHeaders(req)
 
-	resp, err := httpClient.Do(req)
+	resp, err := sendTracked(httpClient, req)
 	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
+		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
+		return nil, fmt.Errorf("read response: %w: %w", errResponseLost, err)
 	}
 
 	if resp.StatusCode >= http.StatusBadRequest {

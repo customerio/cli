@@ -197,9 +197,15 @@ func runAPI(cmd *cobra.Command, args []string) error {
 
 	result, err := c.DoWithBody(cmd.Context(), httpMethod, resolvedPath, queryParams, body)
 	if err != nil {
+		if !client.IsReadOnlyMethod(httpMethod) {
+			return handleWriteError(cmd, httpMethod, err)
+		}
 		return handleAPIError(err)
 	}
 
+	if !client.IsReadOnlyMethod(httpMethod) {
+		return printWriteResult(cmd, httpMethod, result, jq)
+	}
 	return output.FprintProcess(cmd.OutOrStdout(), result, jq, GetRawFlag(cmd))
 }
 

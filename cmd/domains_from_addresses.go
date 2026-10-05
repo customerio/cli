@@ -207,9 +207,9 @@ func runFromAddressesAdd(cmd *cobra.Command, args []string) error {
 
 	result, err := c.Do(cmd.Context(), "POST", path, nil, body)
 	if err != nil {
-		return handleAPIError(err)
+		return handleWriteError(cmd, "POST", err)
 	}
-	return output.FprintProcess(cmd.OutOrStdout(), result, GetJQFlag(cmd), GetRawFlag(cmd))
+	return printWriteResult(cmd, "POST", result, GetJQFlag(cmd))
 }
 
 func runFromAddressesUpdate(cmd *cobra.Command, args []string) error {
@@ -278,9 +278,9 @@ func runFromAddressesUpdate(cmd *cobra.Command, args []string) error {
 
 	result, err := c.Do(cmd.Context(), "PUT", path, nil, body)
 	if err != nil {
-		return handleAPIError(err)
+		return handleWriteError(cmd, "PUT", err)
 	}
-	return output.FprintProcess(cmd.OutOrStdout(), result, GetJQFlag(cmd), GetRawFlag(cmd))
+	return printWriteResult(cmd, "PUT", result, GetJQFlag(cmd))
 }
 
 func runFromAddressesDelete(cmd *cobra.Command, args []string) error {
@@ -314,7 +314,7 @@ func runFromAddressesDelete(cmd *cobra.Command, args []string) error {
 
 	_, err = c.Do(cmd.Context(), "DELETE", path, nil, nil)
 	if err != nil {
-		return handleAPIError(err)
+		return handleWriteError(cmd, "DELETE", err)
 	}
 	return output.FprintJSON(cmd.OutOrStdout(), map[string]any{
 		"deleted":     true,

@@ -101,7 +101,7 @@ func runDomainsConfigure(cmd *cobra.Command, args []string) error {
 	linkPath := fmt.Sprintf("/v1/environments/%s/domains/%s/dns_setup_link?flow=domain_auth", envID, dom.ID)
 	raw, err := c.Do(cmd.Context(), "POST", linkPath, nil, nil)
 	if err != nil {
-		return handleAPIError(err)
+		return handleWriteError(cmd, "POST", err)
 	}
 
 	var resp dnsSetupLinkResponse
@@ -174,11 +174,11 @@ func runDomainsVerify(cmd *cobra.Command, args []string) error {
 
 	result, err := c.Do(cmd.Context(), "POST", path, nil, nil)
 	if err != nil {
-		return handleAPIError(err)
+		return handleWriteError(cmd, "POST", err)
 	}
 
 	if GetJQFlag(cmd) != "" {
-		return output.FprintProcess(cmd.OutOrStdout(), result, GetJQFlag(cmd), GetRawFlag(cmd))
+		return printWriteResult(cmd, "POST", result, GetJQFlag(cmd))
 	}
 
 	return printDomainVerifyResult(cmd, result, dom.Name)

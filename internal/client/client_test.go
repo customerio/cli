@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -875,5 +876,81 @@ func TestClient_Do_CapabilityGrantHeader(t *testing.T) {
 				t.Errorf("X-CIO-Capability-Grant: got %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestClient_RetriesOnlyWhenRepeatingIsSafe(t *testing.T) {
+	cases := []struct {
+		method   string
+		status   int
+		wantSent int
+	}{
+		{"GET", http.StatusBadGateway, 3},
+		{"POST", http.StatusBadGateway, 1},
+		{"PUT", http.StatusInternalServerError, 1},
+		{"DELETE", http.StatusGatewayTimeout, 1},
+		{"POST", http.StatusTooManyRequests, 3},
+	}
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("%s %d", tc.method, tc.status), func(t *testing.T) {
+			sent := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				sent++
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(`{"errors":[]}`))
+			}))
+			defer server.Close()
+
+			c := New(Config{
+				BaseURL:     server.URL,
+				AccessToken: "test-jwt",
+				RetryConfig: &RetryConfig{MaxRetries: 2, SleepFn: func(context.Context, time.Duration) error { return nil }},
+			})
+			if _, err := c.Do(context.Background(), tc.method, "/test", nil, nil); err == nil {
+				t.Fatal("expected an error")
+			}
+			if sent != tc.wantSent {
+				t.Errorf("sent %d requests, want %d", sent, tc.wantSent)
+			}
+		})
+	}
+}
+
+func TestMayHaveApplied_ResponseLostAfterSend(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Fatalf("hijack: %v", err)
+		}
+		_ = conn.Close()
+	}))
+	defer server.Close()
+
+	c := New(Config{
+		BaseURL:     server.URL,
+		AccessToken: "test-jwt",
+		RetryConfig: &RetryConfig{MaxRetries: 0, SleepFn: ContextSleep},
+	})
+	_, doErr := c.Do(context.Background(), "POST", "/test", nil, json.RawMessage(`{}`))
+	_, trackErr := DoTrack(context.Background(), TrackRequest{TrackBaseURL: server.URL, Path: "/v1/send/email", Body: []byte(`{}`)})
+	_, anonErr := PostAnonymous(context.Background(), server.URL, "/v1/account_signup", json.RawMessage(`{}`), time.Second)
+
+	for name, err := range map[string]error{"Do": doErr, "DoTrack": trackErr, "PostAnonymous": anonErr} {
+		if err == nil || !MayHaveApplied(err) {
+			t.Errorf("%s: a request whose response was lost after sending must count as possibly applied, got %v", name, err)
+		}
+	}
+}
+
+func TestMayHaveApplied_NotSent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	url := server.URL
+	server.Close()
+
+	_, err := PostAnonymous(context.Background(), url, "/v1/account_signup", json.RawMessage(`{}`), time.Second)
+	if err == nil || MayHaveApplied(err) {
+		t.Errorf("a request that never connected must not count as possibly applied, got %v", err)
 	}
 }
