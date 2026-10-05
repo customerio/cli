@@ -25,6 +25,12 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+# Create the GitHub release as a draft so a human reviews the auto-generated
+# notes (and the maintainer release-notes skill output) before clicking Publish.
+# Artifacts still build and upload to the draft.
+release:
+  draft: true
+
 changelog:
   sort: asc
   filters:
