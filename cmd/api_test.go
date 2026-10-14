@@ -613,6 +613,41 @@ func TestAPI_JQMatchingWriteIsUnchanged(t *testing.T) {
 	}
 }
 
+func TestAPI_JQPathMissingFromReadWarns(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	stdout, stderr, err := executeCommand("api", "/v1/environments/{environment_id}/campaigns",
+		"--api-url", server.URL,
+		"--params", `{"environment_id": "456"}`,
+		"--jq", "[.campaign.actions[]?]")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.TrimSpace(stdout) != "[]" {
+		t.Errorf("expected the jq output on stdout, got %q", stdout)
+	}
+	if !strings.Contains(stderr, `"code":"JQ_PATH_NOT_IN_RESPONSE"`) || !strings.Contains(stderr, ".campaign") || !strings.Contains(stderr, "method, path, query, request_uri") {
+		t.Errorf("expected a warning naming the missing path and the response's keys, got %q", stderr)
+	}
+}
+
+func TestAPI_JQPathPresentInReadIsQuiet(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	_, stderr, err := executeCommand("api", "/v1/environments/{environment_id}/campaigns",
+		"--api-url", server.URL,
+		"--params", `{"environment_id": "456"}`,
+		"--jq", ".method")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if stderr != "" {
+		t.Errorf("expected no warning, got %q", stderr)
+	}
+}
+
 func TestAPI_JQFailureAfterReadStillFails(t *testing.T) {
 	server, cleanup := setupAPITest(t)
 	defer cleanup()

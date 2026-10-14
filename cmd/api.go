@@ -206,6 +206,7 @@ func runAPI(cmd *cobra.Command, args []string) error {
 	if !client.IsReadOnlyMethod(httpMethod) {
 		return printWriteResult(cmd, httpMethod, result, jq)
 	}
+	warnMissingJQPaths(cmd, result, jq)
 	return output.FprintProcess(cmd.OutOrStdout(), result, jq, GetRawFlag(cmd))
 }
 

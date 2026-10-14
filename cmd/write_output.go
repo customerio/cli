@@ -22,6 +22,7 @@ func printWriteResult(cmd *cobra.Command, method string, result json.RawMessage,
 		printWarning(cmd, "JQ_UNREADABLE_AFTER_WRITE", fmt.Sprintf("the %s request succeeded and its change is saved; --jq could not be applied (%v), so the full response is printed instead", method, err))
 		return output.FprintJSON(cmd.OutOrStdout(), result)
 	}
+	warnMissingJQPaths(cmd, result, jq)
 	if problem := unreadProjection(results, result); problem != "" {
 		printWarning(cmd, "JQ_UNREADABLE_AFTER_WRITE", fmt.Sprintf("the %s request succeeded and its change is saved; --jq %s, so its paths may not match this response, whose top-level keys are: %s", method, problem, topLevelKeys(result)))
 	}
@@ -29,6 +30,19 @@ func printWriteResult(cmd *cobra.Command, method string, result json.RawMessage,
 		return output.FprintRaw(cmd.OutOrStdout(), results)
 	}
 	return output.FprintNDJSON(cmd.OutOrStdout(), results)
+}
+
+// warnMissingJQPaths names --jq paths the response lacks whose miss would otherwise print as empty data.
+func warnMissingJQPaths(cmd *cobra.Command, result json.RawMessage, jq string) {
+	if jq == "" {
+		return
+	}
+
+	missing := output.MissingJQPaths(result, jq)
+	if len(missing) == 0 {
+		return
+	}
+	printWarning(cmd, "JQ_PATH_NOT_IN_RESPONSE", fmt.Sprintf("--jq reads %s, which this response does not have, so its output may be empty or null for that reason rather than because the data is; the response's top-level keys are: %s", strings.Join(missing, ", "), topLevelKeys(result)))
 }
 
 // handleWriteError reports a failed write, warning first when the server may
