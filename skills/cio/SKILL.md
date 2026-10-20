@@ -1,11 +1,12 @@
 ---
 name: cio
 description: >
-  Customer.io CLI - use for Customer.io, Journeys, CDP Pipelines, builder
-  onboarding, sandbox testing, app integration, SDK setup, transactional
-  messaging, billing activation, going live, service account tokens, sources,
-  destinations, identify/track events, and fly.customer.io / cdp.customer.io
-  errors. Trigger even when the user does not name the CLI.
+  Customer.io CLI - use for Customer.io, Journeys, CDP Pipelines, new-account
+  onboarding and signup, app integration, SDK setup, message design, message
+  automation (automations, broadcasts, transactional messages), plans and
+  billing, service account tokens, sources, destinations, identify/track
+  events, and fly.customer.io / cdp.customer.io errors. Trigger even when the
+  user does not name the CLI.
 ---
 
 # Customer.io (`cio`)
@@ -36,9 +37,8 @@ Use runtime references instead of copying large playbooks into this skill:
 
 Common routing:
 
-- Builder/startup setup, signup, sandbox, first app integration,
-  transactional proof, billing activation checks, and go-live start with
-  `cio prime` and `cio skills read cio`.
+- New-account setup, signup and login, first app integration, and plan or
+  billing questions start with `cio prime` and `cio skills read cio`.
 - Existing Journeys resources such as campaigns, segments, templates,
   customers, newsletters, and subscription topics should use
   `cio skills read fly-api`.

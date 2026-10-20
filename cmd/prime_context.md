@@ -85,7 +85,7 @@ Skills provide behavioral guidance, multi-step workflows, and gotchas that are N
 cio skills                              # list available skills
 cio skills read fly-api                 # Customer.io API guidance — routes to sub-files
 cio skills read fly-api/campaigns.md    # campaign workflows, edge wiring, gotchas
-cio skills read cio                     # skills unique to the CLI (onboarding, auth/login, integration, go-live)
+cio skills read cio                     # skills unique to the CLI (onboarding, auth/login, integration)
 cio skills read design-studio           # Design Studio email creation workflow
 cio skills read design-studio/nodes.md  # node creation, component markup
 ```
