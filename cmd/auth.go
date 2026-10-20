@@ -205,7 +205,8 @@ re-authenticates whichever profile is currently selected (see 'cio profile').`,
 				client.SandboxServiceAccountTokenPrefix,
 				token[:min(len(token), 10)])
 			output.PrintError(output.CodeValidationError, err.Error(), map[string]any{
-				"hint": "Production service account tokens start with sa_live_. Sandbox Builder accounts use sa_sandbox_ until go-live.",
+				"hint": fmt.Sprintf("Service account tokens start with sa_live_. Copy the token from the token page (%s) or run cio auth signup for a new account.",
+					resolveCLILoginURL(resolveLoginBaseURL(cmd))),
 			})
 			return err
 		}
