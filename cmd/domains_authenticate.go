@@ -64,6 +64,12 @@ type dnsSetupLinkResponse struct {
 }
 
 func runDomainsConfigure(cmd *cobra.Command, args []string) error {
+	return runDNSSetupLink(cmd, args, "domain_auth")
+}
+
+// runDNSSetupLink mints a DNS-setup handoff link for one Entri flow and prints
+// the URL the browser opens to run it.
+func runDNSSetupLink(cmd *cobra.Command, args []string, flow string) error {
 	c := clientFromCmd(cmd)
 	if c == nil {
 		return errNoClient(cmd)
@@ -89,6 +95,7 @@ func runDomainsConfigure(cmd *cobra.Command, args []string) error {
 			"domain":     dom.Name,
 			"domain_id":  dom.ID,
 			"env_id":     envID,
+			"flow":       flow,
 			"will_fetch": []string{"POST dns_setup_link"},
 		})
 	}
@@ -98,8 +105,8 @@ func runDomainsConfigure(cmd *cobra.Command, args []string) error {
 	// server-side — so the link stays short enough to survive a terminal and
 	// the records reflect completed provisioning rather than whatever existed
 	// when the link was minted.
-	linkPath := fmt.Sprintf("/v1/environments/%s/domains/%s/dns_setup_link?flow=domain_auth", envID, dom.ID)
-	raw, err := c.Do(cmd.Context(), "POST", linkPath, nil, nil)
+	linkPath := fmt.Sprintf("/v1/environments/%s/domains/%s/dns_setup_link", envID, dom.ID)
+	raw, err := c.Do(cmd.Context(), "POST", linkPath, map[string]string{"flow": flow}, nil)
 	if err != nil {
 		return handleWriteError(cmd, "POST", err)
 	}
