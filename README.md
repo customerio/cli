@@ -144,7 +144,7 @@ CIO_TOKEN=sa_live_xxx cio api /v1/environments/{environment_id}/campaigns --para
 
 Use `cio api <path>` for any API endpoint. Path placeholders are resolved from `--params`. The HTTP method defaults to GET (or POST if `--json` is provided); override with `-X`:
 
-`--params` takes a JSON object; URL-query syntax (`--params 'type=event&size=200'`) is also accepted. In the query form a bare `+` is rejected as ambiguous — write `%20` for a space and `%2B` for a plus (`email=a%2Btag@b.com`), or use the JSON form, where both are literal.
+`--params` takes a JSON object; URL-query syntax (`--params 'type=event&size=200'`) is also accepted. Repeat `--params` to split values across flags (`--params type=event --params size=200`); a key given more than once is an error. In the query form a bare `+` is rejected as ambiguous — write `%20` for a space and `%2B` for a plus (`email=a%2Btag@b.com`), or use the JSON form, where both are literal.
 
 ```bash
 # List campaigns in workspace 123
@@ -236,6 +236,19 @@ cio api /v1/environments/{environment_id}/campaigns \
 | `--page <n>` | | Page number |
 | `--limit <n>` | | Page size |
 | `--page-all` | | Auto-paginate, emit NDJSON |
+
+`cio api` retries timeouts for GET and HEAD, and for writes only when the request
+was not sent. Writes whose response times out after sending are not retried because
+they may already have applied. `--timeout` still bounds each HTTP attempt and
+defaults to 30s.
+
+Timeouts share the existing retry limit and exponential backoff with HTTP 429 and
+retryable 5xx responses. `CIO_MAX_RETRIES` defaults to 3 retries, or 4 total
+attempts; set it to 0 to disable these retries. Caller cancellation or an expired
+caller deadline stops retries. Repeated timeouts can therefore take longer than
+`--timeout` overall. If `--page-all` exhausts its retries, it exits with an error
+and leaves any earlier pages in stdout; callers must check its exit status before
+using the output as a complete result.
 
 ## Exit Codes
 

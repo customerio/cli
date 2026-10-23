@@ -29,7 +29,11 @@ func executeCommand(args ...string) (stdout, stderr string, err error) {
 
 	// Reset persistent flags before each test.
 	_ = rootCmd.PersistentFlags().Set("jq", "")
-	_ = rootCmd.PersistentFlags().Set("params", "")
+	_ = rootCmd.PersistentFlags().Set("raw-output", "false")
+	_ = rootCmd.PersistentFlags().Set("read-only", "false")
+	if f, ok := rootCmd.PersistentFlags().Lookup("params").Value.(pflag.SliceValue); ok {
+		_ = f.Replace(nil)
+	}
 	_ = rootCmd.PersistentFlags().Set("json", "")
 	_ = rootCmd.PersistentFlags().Set("dry-run", "false")
 	_ = rootCmd.PersistentFlags().Set("api-url", "")
@@ -488,6 +492,10 @@ func TestAuthLogin_StoredTokenTriggersWebHandoff(t *testing.T) {
 			mintHits++
 			if got := r.Header.Get("Authorization"); got != "Bearer sa_live_existing" {
 				t.Errorf("expected Bearer auth with stored token, got %q", got)
+			}
+			// No destination, so the link keeps landing on the dashboard home.
+			if body, _ := io.ReadAll(r.Body); string(body) != "{}" {
+				t.Errorf("expected an empty JSON body, got %q", body)
 			}
 			_, _ = w.Write([]byte(`{"handoff_token":"handoff-jwt-abc","expires_in":60}`))
 			return

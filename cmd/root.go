@@ -66,7 +66,7 @@ func init() {
 	flags := rootCmd.PersistentFlags()
 
 	flags.String("json", "", "Raw JSON request body, @filename to read from a file, or - to read from stdin")
-	flags.String("params", "", `Query parameters as a JSON object, e.g. '{"email":"a@b.com"}' (query-string form 'email=a@b.com' also accepted; encode spaces as %20 and a plus as %2B)`)
+	flags.StringArray("params", nil, `Query parameters as a JSON object, e.g. '{"email":"a@b.com"}' (query-string form 'email=a@b.com' also accepted; encode spaces as %20 and a plus as %2B). Repeatable; each key may appear only once`)
 	flags.String("jq", "", "jq expression filter (via gojq)")
 	flags.BoolP("raw-output", "r", false, "Print string results unquoted, like jq -r (no external jq needed)")
 	flags.StringArray("arg", nil, "Bind a string variable for --json's jq program: --arg name=value, or name=@file to read the value from a file (repeatable). Makes --json a jq -n program — no external jq needed")
@@ -83,6 +83,12 @@ func init() {
 	flags.Bool("page-all", false, "Auto-paginate, emit NDJSON")
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		// Record the command for the X-CIO-Command header before anything can
+		// send a request. CommandPath is built from command names alone, so
+		// arguments and flag values stay out of the header. Dropping the root
+		// name leaves bare `cio` with an empty command.
+		client.SetCommand(strings.TrimPrefix(cmd.CommandPath(), cmd.Root().Name()))
+
 		maybeHintSkillsInstall(cmd)
 
 		// Select the active profile before any credential access so that auth
@@ -107,9 +113,8 @@ func init() {
 		}
 
 		// Validate --params if provided.
-		paramsFlag, _ := cmd.Flags().GetString("params")
-		if paramsFlag != "" {
-			if _, err := validate.ValidateParams(paramsFlag); err != nil {
+		if paramsFlags, _ := cmd.Flags().GetStringArray("params"); len(paramsFlags) > 0 {
+			if _, err := validate.MergeParams(paramsFlags); err != nil {
 				output.PrintError(output.CodeValidationError, err.Error(), map[string]string{
 					"flag": "--params",
 				})
@@ -284,11 +289,11 @@ func GetDryRun(cmd *cobra.Command) bool {
 
 // GetParams parses and returns validated --params.
 func GetParams(cmd *cobra.Command) (map[string]string, error) {
-	raw, _ := cmd.Flags().GetString("params")
-	if raw == "" {
+	raws, _ := cmd.Flags().GetStringArray("params")
+	if len(raws) == 0 {
 		return nil, nil
 	}
-	return validate.ValidateParams(raw)
+	return validate.MergeParams(raws)
 }
 
 // GetJSONBody returns the validated --json payload.

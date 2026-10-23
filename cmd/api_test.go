@@ -193,6 +193,59 @@ func TestAPI_DryRun(t *testing.T) {
 	}
 }
 
+func TestAPI_RepeatedParamsMerge(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	stdout, _, err := executeCommand("api", "/v1/environments/{environment_id}/campaigns",
+		"--api-url", server.URL,
+		"--params", "environment_id=123",
+		"--params", "action_id=87",
+		"--params", `{"size":500}`,
+		"--params", "end_ts=5",
+		"--dry-run")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var result struct {
+		URL    string            `json:"url"`
+		Params map[string]string `json:"params"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if result.URL != server.URL+"/v1/environments/123/campaigns" {
+		t.Errorf("expected resolved URL, got %v", result.URL)
+	}
+	want := map[string]string{"action_id": "87", "size": "500", "end_ts": "5"}
+	if len(result.Params) != len(want) {
+		t.Fatalf("expected params %v, got %v", want, result.Params)
+	}
+	for k, v := range want {
+		if result.Params[k] != v {
+			t.Errorf("param %q: want %q, got %q", k, v, result.Params[k])
+		}
+	}
+}
+
+func TestAPI_RepeatedParamsDuplicateKey(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	_, _, err := executeCommand("api", "/v1/environments/{environment_id}/campaigns",
+		"--api-url", server.URL,
+		"--params", "environment_id=123&id=1",
+		"--params", "id=2",
+		"--dry-run")
+	if err == nil {
+		t.Fatal("expected error for a key repeated across --params flags")
+	}
+	if !strings.Contains(err.Error(), "appears more than once") {
+		t.Errorf("expected duplicate-key error, got: %v", err)
+	}
+}
+
 func TestAPI_MissingPathParam(t *testing.T) {
 	server, cleanup := setupAPITest(t)
 	defer cleanup()
