@@ -125,6 +125,8 @@ func resetDomainFlags() {
 		domainsFromAddressesUpdateCmd,
 		domainsLinkTrackingConfigureCmd,
 		domainsLinkTrackingVerifyCmd,
+		domainsPostmasterToolsConfigureCmd,
+		domainsPostmasterToolsVerifyCmd,
 		domainsFromAddressesDeleteCmd,
 	} {
 		cmd.Flags().Visit(func(f *pflag.Flag) {
