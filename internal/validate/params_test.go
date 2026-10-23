@@ -108,3 +108,42 @@ func TestValidateParams_Invalid(t *testing.T) {
 		})
 	}
 }
+
+func TestMergeParams(t *testing.T) {
+	got, err := MergeParams([]string{`action_id=87`, `{"size":500}`, `end_ts=5&start_ts=1`, ``})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := map[string]string{"action_id": "87", "size": "500", "end_ts": "5", "start_ts": "1"}
+	if len(got) != len(want) {
+		t.Fatalf("length mismatch: want %d, got %d (%v)", len(want), len(got), got)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("key %q: want %q, got %q", k, v, got[k])
+		}
+	}
+}
+
+func TestMergeParams_Invalid(t *testing.T) {
+	cases := []struct {
+		name    string
+		raws    []string
+		errWant string
+	}{
+		{"same key in two flags", []string{`id=1`, `id=2`}, "appears more than once"},
+		{"same key and value in two flags", []string{`id=1`, `{"id":1}`}, "appears more than once"},
+		{"one bad value fails the merge", []string{`id=1`, `not json`}, "not valid JSON"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := MergeParams(tc.raws)
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tc.errWant)
+			}
+			if !strings.Contains(err.Error(), tc.errWant) {
+				t.Errorf("error mismatch:\n  want substring: %q\n  got: %q", tc.errWant, err.Error())
+			}
+		})
+	}
+}

@@ -61,6 +61,35 @@ func ValidateParams(raw string) (map[string]string, error) {
 	return validateParamMap(obj)
 }
 
+// MergeParams validates each repeated --params value and merges them into one
+// map, so a later flag cannot silently replace an earlier one.
+func MergeParams(raws []string) (map[string]string, error) {
+	merged := make(map[string]string)
+	for _, raw := range raws {
+		// An empty --params "$VAR" means no params.
+		if raw == "" {
+			continue
+		}
+		params, err := ValidateParams(raw)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range params {
+			if _, dup := merged[k]; dup {
+				return nil, duplicateKeyError(k)
+			}
+			merged[k] = v
+		}
+	}
+	return merged, nil
+}
+
+func duplicateKeyError(key string) error {
+	return &ParamsValidationError{
+		Reason: fmt.Sprintf("param key %q appears more than once; --params carries a single value per key, so multi-value filters cannot be sent", key),
+	}
+}
+
 // looksLikeQueryString reports whether the input is unambiguously URL-query
 // syntax, so that malformed JSON still reports as malformed JSON.
 func looksLikeQueryString(raw string) bool {
@@ -117,9 +146,7 @@ func parseQueryString(raw string) (map[string]any, error) {
 			}
 		}
 		if _, dup := obj[decodedKey]; dup {
-			return nil, &ParamsValidationError{
-				Reason: fmt.Sprintf("param key %q appears more than once; --params carries a single value per key, so multi-value filters cannot be sent", decodedKey),
-			}
+			return nil, duplicateKeyError(decodedKey)
 		}
 		obj[decodedKey] = decodedValue
 	}

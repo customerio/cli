@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -44,7 +45,8 @@ func DefaultRetryConfig() RetryConfig {
 }
 
 var (
-	errTokenExchange = errors.New("token exchange failed")
+	errTokenExchange  = errors.New("token exchange failed")
+	errRequestNotSent = errors.New("request not sent")
 	// errResponseLost marks a request that left the machine but whose response
 	// never fully arrived.
 	errResponseLost = errors.New("response lost")
@@ -62,6 +64,12 @@ func IsRetryable(method string, statusCode int) bool {
 		return true
 	}
 	return IsReadOnlyMethod(method) && statusCode >= http.StatusInternalServerError
+}
+
+func isRetryableTimeout(method string, err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout() &&
+		(IsReadOnlyMethod(method) || errors.Is(err, errRequestNotSent))
 }
 
 // MayHaveApplied reports whether the server may have carried out a request

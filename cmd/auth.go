@@ -631,7 +631,7 @@ func runLoginCLILink(cmd *cobra.Command, saToken string) error {
 	}
 	timeout, _ := cmd.Flags().GetDuration("timeout")
 
-	resp, err := client.MintLoginCLILink(cmd.Context(), baseURL, saToken, timeout)
+	resp, err := client.MintLoginCLILink(cmd.Context(), baseURL, saToken, "", timeout)
 	if err != nil {
 		return handleAPIError(err)
 	}

@@ -12,11 +12,32 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/customerio/cli/internal/useragent"
 )
+
+var (
+	commandMu sync.RWMutex
+	command   string
+)
+
+// SetCommand records the path of the command being run, without the root name
+// (for example "billing status"), for the X-CIO-Command header. Called once at
+// the start of the root PersistentPreRunE, before any request is sent.
+func SetCommand(path string) {
+	commandMu.Lock()
+	command = strings.TrimSpace(path)
+	commandMu.Unlock()
+}
+
+func currentCommand() string {
+	commandMu.RLock()
+	defer commandMu.RUnlock()
+	return command
+}
 
 // setStandardHeaders stamps headers that every outgoing CLI request should
 // carry:
@@ -32,6 +53,11 @@ import (
 //   - X-CIO-Source — identifies the originating tool for server-side analytics
 //     (e.g. the "Design Studio: Email Created" source). "AI Assistant" when run
 //     by the agent sandbox (CIO_AGENT=1), otherwise "CLI".
+//   - X-CIO-Command — the command that sent the request (e.g. "billing status"),
+//     so API logs can tell CLI commands apart when they call the same
+//     endpoints. The value is the command name alone, so arguments and flag
+//     values stay out of it. Omitted when no command has been recorded with
+//     SetCommand.
 //   - X-CIO-Capability-Grant — forwarded from $X_CIO_CAPABILITY_GRANT so the env carries a session-scoped grant without a CLI flag.
 func setStandardHeaders(req *http.Request) {
 	req.Header.Set("User-Agent", useragent.Get())
@@ -41,6 +67,9 @@ func setStandardHeaders(req *http.Request) {
 		req.Header.Set("X-CIO-Source", "AI Assistant")
 	} else {
 		req.Header.Set("X-CIO-Source", "CLI")
+	}
+	if cmd := currentCommand(); cmd != "" {
+		req.Header.Set("X-CIO-Command", cmd)
 	}
 	if grant := os.Getenv("X_CIO_CAPABILITY_GRANT"); grant != "" {
 		req.Header.Set("X-CIO-Capability-Grant", grant)
@@ -476,9 +505,17 @@ func (c *Client) DoWithBody(ctx context.Context, method, path string, params map
 		if err == nil {
 			return result, nil
 		}
+		if ctx.Err() != nil {
+			// Preserve send tracking so cancelled writes still report an unknown outcome.
+			return nil, err
+		}
 
 		apiErr, ok := err.(*APIError)
 		if !ok {
+			if isRetryableTimeout(method, err) {
+				lastErr = err
+				continue
+			}
 			return nil, err
 		}
 
@@ -528,7 +565,7 @@ func sendTracked(httpClient *http.Client, req *http.Request) (*http.Response, er
 		if sent.Load() {
 			return nil, fmt.Errorf("http request: %w: %w", errResponseLost, err)
 		}
-		return nil, fmt.Errorf("http request: %w", err)
+		return nil, fmt.Errorf("http request: %w: %w", errRequestNotSent, err)
 	}
 	return resp, nil
 }
@@ -697,18 +734,29 @@ type LoginCLILinkResponse struct {
 	ExpiresIn    int    `json:"expires_in"`
 }
 
+// LoginCLILinkDestinationAddFunds lands the signed-in browser on Add funds.
+const LoginCLILinkDestinationAddFunds = "add_funds"
+
 // MintLoginCLILink asks the backend for a short-lived JWT that the user can
 // click to bootstrap a browser session for fly.customer.io. The CLI's
 // existing sa_live_ token is the credential — we send it as a Bearer token,
 // not in the URL.
-func MintLoginCLILink(ctx context.Context, baseURL, saToken string, timeout time.Duration) (*LoginCLILinkResponse, error) {
+//
+// destination names where the browser lands once signed in; "" is the
+// dashboard home. The server maps the name to a path, so it is never a URL.
+func MintLoginCLILink(ctx context.Context, baseURL, saToken, destination string, timeout time.Duration) (*LoginCLILinkResponse, error) {
 	if timeout <= 0 {
 		timeout = defaultTimeout
 	}
 	httpClient := &http.Client{Timeout: timeout}
 
+	body := []byte("{}")
+	if destination != "" {
+		body, _ = json.Marshal(map[string]string{"destination": destination})
+	}
+
 	u := strings.TrimRight(baseURL, "/") + "/v1/login_cli/link"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader([]byte("{}")))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}

@@ -759,11 +759,16 @@ func TestClient_Do_UserAgentHeader(t *testing.T) {
 }
 
 func TestDoTrack_StandardHeaders(t *testing.T) {
+	SetCommand("send email")
+	t.Cleanup(func() { SetCommand("") })
+
 	var gotUserAgent string
 	var gotValidate string
+	var gotCommand string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotUserAgent = r.Header.Get("User-Agent")
 		gotValidate = r.Header.Get("X-Validate")
+		gotCommand = r.Header.Get("X-CIO-Command")
 		_, _ = w.Write([]byte(`{"delivery_id":"abc"}`))
 	}))
 	defer server.Close()
@@ -783,6 +788,9 @@ func TestDoTrack_StandardHeaders(t *testing.T) {
 	}
 	if gotValidate != "strict" {
 		t.Errorf("X-Validate: got %q, want %q", gotValidate, "strict")
+	}
+	if gotCommand != "send email" {
+		t.Errorf("X-CIO-Command: got %q, want %q", gotCommand, "send email")
 	}
 }
 
@@ -831,6 +839,51 @@ func TestClient_Do_AgentHeader(t *testing.T) {
 			}
 			if gotSource != tc.wantSource {
 				t.Errorf("X-CIO-Source: got %q, want %q", gotSource, tc.wantSource)
+			}
+		})
+	}
+}
+
+func TestClient_Do_CommandHeader(t *testing.T) {
+	cases := []struct {
+		name    string
+		command string
+		want    string // expected X-CIO-Command header value; "" means absent
+	}{
+		{"no command recorded", "", ""},
+		{"top-level command", "api", "api"},
+		{"nested command", "billing status", "billing status"},
+		{"surrounding space trimmed", " billing add-funds ", "billing add-funds"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			SetCommand(tc.command)
+			t.Cleanup(func() { SetCommand("") })
+
+			var got []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				got = r.Header.Values("X-CIO-Command")
+				_, _ = w.Write([]byte(`{"ok":true}`))
+			}))
+			defer server.Close()
+
+			c := New(Config{
+				BaseURL:     server.URL,
+				AccessToken: "test-jwt",
+				RetryConfig: &RetryConfig{MaxRetries: 0, SleepFn: ContextSleep},
+			})
+			if _, err := c.Do(context.Background(), "GET", "/test", nil, nil); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tc.want == "" {
+				if len(got) != 0 {
+					t.Errorf("X-CIO-Command: expected no header, got %q", got)
+				}
+				return
+			}
+			if len(got) != 1 || got[0] != tc.want {
+				t.Errorf("X-CIO-Command: got %q, want %q", got, tc.want)
 			}
 		})
 	}
