@@ -16,9 +16,24 @@ Auth uses service account tokens exchanged for JWTs. Check status with:
 cio auth status
 ```
 
-If auth fails or there is no token yet, read `cio skills read cio/auth.md`
-and follow its login flow. Never have the user paste a token into the
-conversation or pass one as a shell argument.
+If `cio auth status` fails, read `cio skills read cio/auth.md` before acting.
+It decides between signup (no account yet) and login (account exists, no
+usable token). Run either flow yourself; don't ask the user to run commands.
+
+For login, run the waiting login and, in the same message, give the user
+these steps (they may not see the command's output):
+
+```bash
+cio auth login --from-clipboard --wait
+```
+
+1. I've started a login command that watches your clipboard.
+2. Open https://fly.customer.io/cli and sign in.
+3. Copy the token shown. It's picked up automatically.
+
+The command waits up to 90 seconds. On timeout, re-run it right away without
+ending your turn. Never have the user paste a token into the conversation or
+pass one as a shell argument.
 
 ## Profiles
 
