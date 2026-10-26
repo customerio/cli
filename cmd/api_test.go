@@ -666,6 +666,22 @@ func TestAPI_JQMatchingWriteIsUnchanged(t *testing.T) {
 	}
 }
 
+func TestAPI_JQCompactFlagAccepted(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	stdout, _, err := executeCommand("api", "/v1/environments/{environment_id}/campaigns",
+		"--api-url", server.URL,
+		"--params", `{"environment_id": "456"}`,
+		"--jq", "{method, path}", "-c")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.TrimSpace(stdout) != `{"method":"GET","path":"/v1/environments/456/campaigns"}` {
+		t.Errorf("expected compact projection, got %q", stdout)
+	}
+}
+
 func TestAPI_JQPathMissingFromReadWarns(t *testing.T) {
 	server, cleanup := setupAPITest(t)
 	defer cleanup()
