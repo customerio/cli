@@ -69,6 +69,9 @@ func init() {
 	flags.StringArray("params", nil, `Query parameters as a JSON object, e.g. '{"email":"a@b.com"}' (query-string form 'email=a@b.com' also accepted; encode spaces as %20 and a plus as %2B). Repeatable; each key may appear only once`)
 	flags.String("jq", "", "jq expression filter (via gojq)")
 	flags.BoolP("raw-output", "r", false, "Print string results unquoted, like jq -r (no external jq needed)")
+	// Agents add jq's -c out of habit; output is always compact, so accept it instead of failing the command.
+	flags.BoolP("compact-output", "c", false, "Accepted for jq compatibility; output is already compact JSON")
+	_ = flags.MarkHidden("compact-output")
 	flags.StringArray("arg", nil, "Bind a string variable for --json's jq program: --arg name=value, or name=@file to read the value from a file (repeatable). Makes --json a jq -n program — no external jq needed")
 	flags.StringArray("argjson", nil, "Bind a JSON variable for --json's jq program: --argjson name=<json>, or name=@file (repeatable)")
 	flags.Bool("dry-run", false, "Validate and print request, don't execute")
