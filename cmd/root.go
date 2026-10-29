@@ -45,7 +45,8 @@ Base URLs:
   EU: https://eu.fly.customer.io
 
 Use 'cio auth login' to open the browser-based login flow, or set CIO_TOKEN
-for direct token-based usage.`,
+for direct token-based usage. If you don't have a Customer.io account yet,
+'cio auth signup' creates one.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	RunE: func(cmd *cobra.Command, args []string) error {

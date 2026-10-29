@@ -53,6 +53,7 @@ func setupSendTest(t *testing.T, token, workspaceID string) (*httptest.Server, f
 	t.Setenv("CIO_ENVIRONMENT_ID", "")
 	server := trackServer(t, token, workspaceID)
 	t.Setenv("CIO_TRACK_URL", server.URL)
+	stubUIAPI(t)
 	return server, func() { server.Close() }
 }
 

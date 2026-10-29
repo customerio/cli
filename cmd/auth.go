@@ -13,6 +13,7 @@ import (
 	"github.com/customerio/cli/internal/client"
 	"github.com/customerio/cli/internal/clipboard"
 	"github.com/customerio/cli/internal/output"
+	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -20,6 +21,10 @@ import (
 var isTerminalInput = func(fd uintptr) bool {
 	return term.IsTerminal(int(fd))
 }
+
+// isCygwinTerminalInput reports a mintty, MSYS or Cygwin pty. Windows gives
+// one as a named pipe, which term.IsTerminal doesn't count as a terminal.
+var isCygwinTerminalInput = isatty.IsCygwinTerminal
 
 var readPasswordInput = func(fd uintptr) ([]byte, error) {
 	return term.ReadPassword(int(fd))
@@ -64,7 +69,7 @@ func clipboardToken(cmd *cobra.Command, wait bool) (string, error) {
 			if token == "" {
 				err := fmt.Errorf("clipboard is empty")
 				output.PrintError(output.CodeValidationError, err.Error(), map[string]any{
-					"hint": "Copy the token from the token page, then re-run. In a remote shell your local clipboard isn't visible — run 'cio auth login' in your own terminal instead.",
+					"hint": "Copy the token from the token page, then re-run, or add --wait to start watching the clipboard before the token is copied. If the token was already copied, this shell can't see your local clipboard (SSH, containers), so run 'cio auth login' in your own terminal instead.",
 				})
 				return "", err
 			}
@@ -82,7 +87,7 @@ func clipboardToken(cmd *cobra.Command, wait bool) (string, error) {
 		if time.Now().After(deadline) {
 			err := fmt.Errorf("timed out waiting for a token on the clipboard")
 			output.PrintError(output.CodeValidationError, err.Error(), map[string]any{
-				"hint": "Copy the token from the token page and re-run. In a remote shell your local clipboard isn't visible — run 'cio auth login' in your own terminal instead.",
+				"hint": "Re-run the same command to keep waiting. If the token was already copied, this shell can't see your local clipboard (SSH, containers), so run 'cio auth login' in your own terminal instead.",
 			})
 			return "", err
 		}
@@ -100,7 +105,10 @@ var authCmd = &cobra.Command{
 	Long: `Manage authentication for the Customer.io CLI.
 
 Credentials are stored in ~/.cio/config.json.
-You can also set the CIO_TOKEN environment variable or pass --token on any command.`,
+You can also set the CIO_TOKEN environment variable or pass --token on any command.
+
+AI agents can sign the user in: see 'cio auth login --help'. If the user
+has no Customer.io account, 'cio auth signup' creates one.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return cmd.Help()
 	},
@@ -114,6 +122,19 @@ var authLoginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Authenticate the Customer.io CLI",
 	Long: `Sign in to the Customer.io CLI.
+
+For AI agents: you can run this login for the user. Start the waiting
+login and, in the same message, give the user these steps (they may not
+see this command's output):
+  $ cio auth login --from-clipboard --wait
+  1. I've started a login command that watches your clipboard.
+  2. Open https://fly.customer.io/cli and sign in.
+  3. Copy the token shown. It's picked up automatically.
+The command waits up to 90 seconds. On timeout, re-run it right away
+without ending your turn. Never have the user paste a token into the
+conversation. Plain 'cio auth login' asks for a pasted token when none is
+stored, so it fails without a terminal. For signup, remote shells and EU
+accounts, run 'cio skills read cio/auth.md'.
 
 If you're already signed in, this prints a link to open Customer.io in
 your browser — no password needed.
@@ -178,6 +199,16 @@ re-authenticates whichever profile is currently selected (see 'cio profile').`,
 			// users who signed up via CLI.
 			if existing := loadStoredServiceAccountToken(); existing != "" {
 				return runLoginCLILink(cmd, existing)
+			}
+
+			// Without a terminal, as in an agent's shell, stdin may never
+			// close, so the prompt would hang. Say what works instead.
+			if !canPromptForToken(cmd.InOrStdin()) {
+				err := fmt.Errorf("no terminal to paste a token into")
+				output.PrintError(output.CodeValidationError, err.Error(), map[string]any{
+					"hint": "Run 'cio auth login --from-clipboard --wait' and have the user copy the token from the token page (see 'cio auth login --help'). To pipe a token in, use 'cio auth login --with-token'.",
+				})
+				return err
 			}
 
 			// Print the URL rather than shelling out to a browser — works
@@ -290,6 +321,11 @@ var authLogoutCmd = &cobra.Command{
 // auth status
 // ---------------------------------------------------------------------------
 
+// noTokenHint follows the no-token errors from auth status and auth token.
+// Agents run auth status first, so it names signup for a user with no account
+// as well as the agent login for one who has an account.
+const noTokenHint = "If the user has no Customer.io account, create one with 'cio auth signup start' (see 'cio auth signup --help'). For an existing account, run 'cio auth login --from-clipboard --wait' (see 'cio auth login --help')."
+
 var authStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Display active authentication state",
@@ -325,6 +361,7 @@ Token resolution order:
 			err := fmt.Errorf("not authenticated. Run 'cio auth login' or set CIO_TOKEN")
 			output.PrintError(output.CodeAuthError, err.Error(), map[string]any{
 				"token_source": "none",
+				"hint":         noTokenHint,
 			})
 			return err
 		}
@@ -398,7 +435,9 @@ Token resolution order:
 
 		if token == "" {
 			err := fmt.Errorf("no token found. Run 'cio auth login' or set CIO_TOKEN")
-			output.PrintError(output.CodeAuthError, err.Error(), nil)
+			output.PrintError(output.CodeAuthError, err.Error(), map[string]any{
+				"hint": noTokenHint,
+			})
 			return err
 		}
 
@@ -714,6 +753,16 @@ func resolveLoginAPIURL(cmd *cobra.Command) string {
 		return envURL
 	}
 	return ""
+}
+
+// canPromptForToken reports whether plain login can prompt for a pasted token,
+// which needs a terminal. Agent shells give stdin as /dev/null or as a pipe or
+// socket that never closes, and piped tokens go through --with-token. A reader
+// that isn't a file, as in tests, is read as is. A Git Bash or Cygwin pty
+// counts as a terminal, and its prompt reads the pasted line.
+func canPromptForToken(input io.Reader) bool {
+	f, ok := input.(*os.File)
+	return !ok || isTerminalInput(f.Fd()) || isCygwinTerminalInput(f.Fd())
 }
 
 func readInteractiveToken(input io.Reader, stderr io.Writer) (string, error) {

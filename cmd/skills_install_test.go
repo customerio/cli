@@ -451,6 +451,16 @@ func TestBootstrapBodyCarriesMarker(t *testing.T) {
 	}
 }
 
+// An agent reads the installed skill before cio is installed or the user has an
+// account, so the body itself names the install command and signup.
+func TestBootstrapBodyNamesInstallAndSignup(t *testing.T) {
+	for _, want := range []string{"npm install -g @customerio/cli", "cio auth signup"} {
+		if !strings.Contains(bootstrapSkillBody, want) {
+			t.Errorf("expected the bootstrap body to contain %q, got:\n%s", want, bootstrapSkillBody)
+		}
+	}
+}
+
 // A target we cannot clean must not strand the others.
 func TestRemoveLegacyInstallsContinuesPastAFailure(t *testing.T) {
 	if len(installTargets) < 2 {

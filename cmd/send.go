@@ -327,6 +327,8 @@ func runTrackSend(cmd *cobra.Command, sendPath string, body json.RawMessage) err
 	if err != nil {
 		return handleWriteError(cmd, http.MethodPost, err)
 	}
+	// The send was accepted, so after its output, warn if funds are running low.
+	defer warnIfFundsLow(cmd, sendPath, saToken)
 
 	watch, _ := cmd.Flags().GetBool("watch")
 	if !watch {
