@@ -471,14 +471,14 @@ func TestEnsureSpecs_AuthenticatedCacheIsolation(t *testing.T) {
 	}
 
 	// Authenticated specs should be in a key-specific subdir.
-	authDir := filepath.Join(cacheDir, cacheKeyDir(token))
+	authDir := filepath.Join(cacheDir, CacheKeyDir(token))
 	if _, err := os.Stat(filepath.Join(authDir, "openapi.json")); err != nil {
 		t.Errorf("authenticated cache missing: %v", err)
 	}
 
 	// Different keys should use different subdirs.
 	token2 := "test-service-account-token-b"
-	if cacheKeyDir(token) == cacheKeyDir(token2) {
+	if CacheKeyDir(token) == CacheKeyDir(token2) {
 		t.Error("different keys should produce different cache directories")
 	}
 }

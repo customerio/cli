@@ -20,11 +20,13 @@ skill-reading guidance.
 cio prime
 ```
 
-If `cio` is not installed, fetch current installation instructions from the
-README:
+If the user has no Customer.io account, create one with `cio auth signup`.
+`cio prime` explains the flow.
+
+If `cio` is not installed, install it with npm:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/customerio/cli/main/README.md
+npm install -g @customerio/cli
 ```
 
 Use runtime references instead of copying large playbooks into this skill:

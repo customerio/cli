@@ -417,7 +417,7 @@ func forecastWallet(now time.Time, usage walletUsage, rates map[string]float64) 
 		funds.RunsOutOn = dateOf(now)
 		fundsWarning = &billingWarning{
 			Code:    "FUNDS_LOW",
-			Message: "No funds left. Usage beyond the free grants fails: metered sends are undeliverable and new active profiles are dropped. Run 'cio billing add-funds' to add funds.",
+			Message: "No funds left. New active profiles beyond the free grant are dropped, and metered sends may fail. Run 'cio billing add-funds' to add funds.",
 		}
 	} else {
 		slices.SortFunc(later, func(a, b rollover) int { return cmp.Compare(a.day, b.day) })

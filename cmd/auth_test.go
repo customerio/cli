@@ -467,6 +467,73 @@ func TestReadInteractiveTokenWithTTY_FallsBackForNonTerminalInput(t *testing.T) 
 	}
 }
 
+func TestAuthLogin_NoTerminalFailsFast(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("CIO_TOKEN", "")
+
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open %s: %v", os.DevNull, err)
+	}
+	defer devNull.Close()
+	rootCmd.SetIn(devNull)
+	t.Cleanup(func() { rootCmd.SetIn(nil) })
+
+	_, stderr, err := executeCommand("auth", "login")
+	if err == nil || !strings.Contains(err.Error(), "no terminal to paste a token into") {
+		t.Fatalf("expected the no-terminal error, got: %v", err)
+	}
+	if strings.Contains(stderr, "Paste token:") || strings.Contains(stderr, "Open this URL") {
+		t.Errorf("expected no paste prompt, got stderr:\n%s", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(tmpDir, ".cio", "config.json")); !os.IsNotExist(err) {
+		t.Errorf("expected no config file, stat err: %v", err)
+	}
+}
+
+func TestCanPromptForToken(t *testing.T) {
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open %s: %v", os.DevNull, err)
+	}
+	defer devNull.Close()
+	if canPromptForToken(devNull) {
+		t.Errorf("expected no prompt on %s", os.DevNull)
+	}
+
+	// An agent's shell can hold stdin open without ever writing to it.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer r.Close()
+	defer w.Close()
+	if canPromptForToken(r) {
+		t.Errorf("expected no prompt on a pipe")
+	}
+
+	if !canPromptForToken(strings.NewReader("sa_live_piped\n")) {
+		t.Errorf("expected a non-file reader to be read as is")
+	}
+
+	// Git Bash's mintty and Cygwin give stdin as a named pipe.
+	origIsCygwinTerminal := isCygwinTerminalInput
+	t.Cleanup(func() { isCygwinTerminalInput = origIsCygwinTerminal })
+	isCygwinTerminalInput = func(fd uintptr) bool { return true }
+	if !canPromptForToken(r) {
+		t.Errorf("expected a prompt on a Cygwin or MSYS pty")
+	}
+	isCygwinTerminalInput = origIsCygwinTerminal
+
+	origIsTerminal := isTerminalInput
+	t.Cleanup(func() { isTerminalInput = origIsTerminal })
+	isTerminalInput = func(fd uintptr) bool { return true }
+	if !canPromptForToken(devNull) {
+		t.Errorf("expected a prompt on a terminal")
+	}
+}
+
 // When `cio auth login` runs with no args and a sa_live_ already saved, it
 // should hit /v1/login_cli/link on the API, get a handoff JWT back, and
 // print a one-click URL — without touching the existing stored token.
@@ -656,6 +723,27 @@ func TestAuthLogin_HelpMentionsBrowserFlow(t *testing.T) {
 	}
 }
 
+func TestAuthLogin_HelpTellsAgentsToRunIt(t *testing.T) {
+	help := authLoginCmd.Long
+	for _, want := range []string{
+		"For AI agents: you can run this login for the user.",
+		"$ cio auth login --from-clipboard --wait",
+		"Open https://fly.customer.io/cli and sign in.",
+		"The command waits up to 90 seconds.",
+		"cio skills read cio/auth.md",
+	} {
+		if !strings.Contains(help, want) {
+			t.Errorf("expected login help to contain %q, got:\n%s", want, help)
+		}
+	}
+}
+
+func TestAuth_HelpNamesSignup(t *testing.T) {
+	if !strings.Contains(authCmd.Long, "'cio auth signup'") {
+		t.Errorf("expected auth help to name signup, got:\n%s", authCmd.Long)
+	}
+}
+
 func TestAuthLogout_RemovesCredentials(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
@@ -701,10 +789,60 @@ func TestAuthStatus_NotAuthenticated(t *testing.T) {
 	t.Setenv("HOME", tmpDir)
 	t.Setenv("CIO_TOKEN", "")
 
-	_, _, err := executeCommand("auth", "status")
+	var err error
+	stderr := captureStderr(t, func() {
+		_, _, err = executeCommand("auth", "status")
+	})
 	if err == nil {
 		t.Fatal("expected error when not authenticated")
 	}
+	assertNoTokenHint(t, stderr)
+}
+
+// assertNoTokenHint checks that a no-token error names signup for a user with
+// no account and the agent login for one who has an account.
+func assertNoTokenHint(t *testing.T, stderr string) {
+	t.Helper()
+	var e struct {
+		Code    string         `json:"code"`
+		Details map[string]any `json:"details"`
+	}
+	line, _, _ := strings.Cut(stderr, "\n")
+	if err := json.Unmarshal([]byte(line), &e); err != nil {
+		t.Fatalf("expected a JSON error on stderr: %v\nstderr: %s", err, stderr)
+	}
+	if e.Code != "AUTH_ERROR" {
+		t.Errorf("expected AUTH_ERROR, got %q", e.Code)
+	}
+	hint, _ := e.Details["hint"].(string)
+	for _, want := range []string{"cio auth signup start", "cio auth login --from-clipboard --wait"} {
+		if !strings.Contains(hint, want) {
+			t.Errorf("expected hint to contain %q, got %q", want, hint)
+		}
+	}
+}
+
+// captureStderr runs fn with os.Stderr redirected to a pipe and returns what
+// was written. output.PrintError writes to os.Stderr, not the command's writer.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	defer func() { os.Stderr = old }()
+
+	done := make(chan string)
+	go func() {
+		b, _ := io.ReadAll(r)
+		done <- string(b)
+	}()
+
+	fn()
+	_ = w.Close()
+	return <-done
 }
 
 func TestAuthStatus_WithEnvToken(t *testing.T) {
@@ -844,10 +982,14 @@ func TestAuthToken_NoToken(t *testing.T) {
 	t.Setenv("HOME", tmpDir)
 	t.Setenv("CIO_TOKEN", "")
 
-	_, _, err := executeCommand("auth", "token")
+	var err error
+	stderr := captureStderr(t, func() {
+		_, _, err = executeCommand("auth", "token")
+	})
 	if err == nil {
 		t.Fatal("expected error when no token available")
 	}
+	assertNoTokenHint(t, stderr)
 }
 
 // signupServer returns a test server for the agentic signup endpoints.

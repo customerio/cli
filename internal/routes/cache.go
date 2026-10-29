@@ -126,15 +126,15 @@ func (o *LoadRegistryOptions) resolveCacheDir() (string, error) {
 		base = filepath.Join(home, ".cio", specCacheSubdir)
 	}
 	if o.CacheKey != "" {
-		return filepath.Join(base, cacheKeyDir(o.CacheKey)), nil
+		return filepath.Join(base, CacheKeyDir(o.CacheKey)), nil
 	}
 	return base, nil
 }
 
-// cacheKeyDir returns a short, filesystem-safe subdirectory name for a cache
-// key: a hash, so a secret used as the key never lands on disk in the clear,
-// and distinct keys never share a directory.
-func cacheKeyDir(key string) string {
+// CacheKeyDir returns a short, filesystem-safe name for a cache key's
+// subdirectory or file: a hash, so a secret used as the key never lands on
+// disk in the clear, and distinct keys never share an entry.
+func CacheKeyDir(key string) string {
 	h := sha256.Sum256([]byte(key))
 	return "auth-" + hex.EncodeToString(h[:8])
 }

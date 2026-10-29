@@ -13,4 +13,11 @@ cio prime
 task-specific skills (`cio skills read <skill>`), global flags, exit codes,
 and examples. Follow what it returns.
 
-If `cio` is not installed, see https://github.com/customerio/cli.
+If the user has no Customer.io account, create one with `cio auth signup`.
+`cio prime` explains the flow.
+
+If `cio` is not installed, install it with npm:
+
+```bash
+npm install -g @customerio/cli
+```
