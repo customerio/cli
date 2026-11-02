@@ -20,6 +20,14 @@ If `cio auth status` fails, read `cio skills read cio/auth.md` before acting.
 It decides between signup (no account yet) and login (account exists, no
 usable token). Run either flow yourself; don't ask the user to run commands.
 
+If the user has no Customer.io account, create one for them with
+`cio auth signup start`, then `cio auth signup verify` with the code the user
+gets by email. Before `signup start`, ask the user which email address to sign
+up with, even if you already know one for them, and wait for the answer. Also
+ask which data center (US or EU) the account belongs in. Wait for the emailed
+code and never guess one. `verify` saves the credentials, so no login is needed
+afterward.
+
 For login, run the waiting login and, in the same message, give the user
 these steps (they may not see the command's output):
 

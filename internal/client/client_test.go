@@ -794,6 +794,50 @@ func TestDoTrack_StandardHeaders(t *testing.T) {
 	}
 }
 
+func TestClient_Do_AgentCallHeaders(t *testing.T) {
+	headers := []string{"X-CIO-Session-ID", "X-CIO-Exchange-ID", "X-CIO-Tool-Call-ID"}
+	cases := []struct {
+		name  string
+		agent string
+		want  []string
+	}{
+		{"agent forwards the call", "1", []string{"42", "exchange-1", "toolu_1"}},
+		{"outside the agent sends nothing", "", []string{"", "", ""}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CIO_AGENT", tc.agent)
+			t.Setenv("CIO_SESSION_ID", "42")
+			t.Setenv("CIO_EXCHANGE_ID", "exchange-1")
+			t.Setenv("CIO_TOOL_CALL_ID", "toolu_1")
+
+			got := make([]string, len(headers))
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				for i, h := range headers {
+					got[i] = r.Header.Get(h)
+				}
+				_, _ = w.Write([]byte(`{"ok":true}`))
+			}))
+			defer server.Close()
+
+			c := New(Config{
+				BaseURL:     server.URL,
+				AccessToken: "test-jwt",
+				RetryConfig: &RetryConfig{MaxRetries: 0, SleepFn: ContextSleep},
+			})
+			if _, err := c.Do(context.Background(), "GET", "/test", nil, nil); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			for i, h := range headers {
+				if got[i] != tc.want[i] {
+					t.Errorf("%s: got %q, want %q", h, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
 func TestClient_Do_AgentHeader(t *testing.T) {
 	cases := []struct {
 		name       string
