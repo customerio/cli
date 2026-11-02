@@ -39,6 +39,12 @@ func currentCommand() string {
 	return command
 }
 
+var agentCallHeaders = map[string]string{
+	"CIO_SESSION_ID":   "X-CIO-Session-ID",
+	"CIO_EXCHANGE_ID":  "X-CIO-Exchange-ID",
+	"CIO_TOOL_CALL_ID": "X-CIO-Tool-Call-ID",
+}
+
 // setStandardHeaders stamps headers that every outgoing CLI request should
 // carry:
 //
@@ -59,12 +65,20 @@ func currentCommand() string {
 //     values stay out of it. Omitted when no command has been recorded with
 //     SetCommand.
 //   - X-CIO-Capability-Grant — forwarded from $X_CIO_CAPABILITY_GRANT so the env carries a session-scoped grant without a CLI flag.
+//   - X-CIO-Session-ID, X-CIO-Exchange-ID, X-CIO-Tool-Call-ID — forwarded from
+//     $CIO_SESSION_ID, $CIO_EXCHANGE_ID and $CIO_TOOL_CALL_ID when run by the
+//     agent sandbox, so audit logs can name the agent turn that made a change.
 func setStandardHeaders(req *http.Request) {
 	req.Header.Set("User-Agent", useragent.Get())
 	req.Header.Set("X-Validate", "strict")
 	if os.Getenv("CIO_AGENT") == "1" {
 		req.Header.Set("X-CIO-Agent", "1")
 		req.Header.Set("X-CIO-Source", "AI Assistant")
+		for env, header := range agentCallHeaders {
+			if v := os.Getenv(env); v != "" {
+				req.Header.Set(header, v)
+			}
+		}
 	} else {
 		req.Header.Set("X-CIO-Source", "CLI")
 	}

@@ -19,6 +19,20 @@ func TestPrime_UsesDefaultTokenPageURL(t *testing.T) {
 	}
 }
 
+func TestPrime_NamesSignupForNewAccounts(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	stdout, _, err := executeCommand("prime")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, want := range []string{"cio auth signup start", "cio auth signup verify", "ask the user which email address"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("expected prime output to name %q", want)
+		}
+	}
+}
+
 func TestPrime_UsesResolvedTokenPageURL(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CIO_API_URL", "")

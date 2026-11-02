@@ -22,6 +22,7 @@ func setupTransactionalSendTest(t *testing.T, token, workspaceID string) (*httpt
 	t.Setenv("CIO_ENVIRONMENT_ID", "")
 	server := trackServer(t, token, workspaceID)
 	t.Setenv("CIO_TRACK_URL", server.URL)
+	stubUIAPI(t)
 	return server, func() { server.Close() }
 }
 
