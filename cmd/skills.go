@@ -64,8 +64,11 @@ func init() {
 }
 
 func loadSkills(cmd *cobra.Command) (*skills.SkillsResponse, error) {
-	refresh, _ := cmd.Flags().GetBool("refresh")
+	return fetchSkills(cmd, skillsLoadOptions(cmd))
+}
 
+func skillsLoadOptions(cmd *cobra.Command) skills.LoadOptions {
+	refresh, _ := cmd.Flags().GetBool("refresh")
 	opts := skills.LoadOptions{ForceRefresh: refresh}
 	// Best-effort authentication: when credentials are available, send a Bearer
 	// token so the server scopes the bundle to the account's plan, and key the
@@ -76,9 +79,16 @@ func loadSkills(cmd *cobra.Command) (*skills.SkillsResponse, error) {
 		if token, err := c.EnsureAccessToken(cmd.Context()); err == nil {
 			opts.AccessToken = token
 			opts.CacheScope = accountCacheScope(c.ServiceAccountToken())
+		} else if c.ServiceAccountToken() != "" {
+			// The unauthenticated bundle lacks plan-gated skills, which
+			// otherwise just read as unknown.
+			fmt.Fprintf(cmd.ErrOrStderr(), "cio: warning: could not authenticate (%v); showing skills without your account, so account-gated skills are omitted\n", err)
 		}
 	}
+	return opts
+}
 
+func fetchSkills(cmd *cobra.Command, opts skills.LoadOptions) (*skills.SkillsResponse, error) {
 	resp, err := skills.EnsureSkills(cmd.Context(), opts)
 	if err != nil {
 		output.PrintError(output.CodeGeneralError, fmt.Sprintf("failed to load skills: %v", err), nil)
@@ -142,61 +152,83 @@ func runSkillsList(cmd *cobra.Command, args []string) error {
 }
 
 func runSkillsRead(cmd *cobra.Command, args []string) error {
-	resp, err := loadSkills(cmd)
+	opts := skillsLoadOptions(cmd)
+	resp, err := fetchSkills(cmd, opts)
 	if err != nil {
 		return err
 	}
 
 	path := args[0]
-
-	// Split into skill path and optional sub-file.
 	skillPath, subFile := splitSkillArg(path)
 
-	for _, s := range resp.Skills {
-		if s.Path != skillPath {
-			continue
+	// A cached bundle can predate a plan change on the server, so
+	// revalidate once (a 304 when nothing changed) before calling anything unknown.
+	if resp.Cached && !hasSkillFile(resp, skillPath, subFile) {
+		opts.ForceRefresh = true
+		if fresh, ferr := skills.EnsureSkills(cmd.Context(), opts); ferr == nil {
+			resp = fresh
 		}
+	}
 
-		if subFile == "" {
-			// Return the skill's routing index: authored SKILL.md content if
-			// present, otherwise an index synthesized from the sub-files'
-			// frontmatter descriptions.
-			return skillsOutput(cmd, map[string]any{
-				"path":    s.Path,
-				"name":    s.Name,
-				"content": s.Index(),
-			})
+	s := findSkill(resp, skillPath)
+	if s == nil {
+		available := make([]string, 0, len(resp.Skills))
+		for _, s := range resp.Skills {
+			available = append(available, s.Path)
 		}
+		err = fmt.Errorf("unknown skill: %s", skillPath)
+		output.PrintError(output.CodeValidationError, err.Error(), map[string]any{
+			"available_skills": available,
+		})
+		return err
+	}
 
-		// Look up the sub-file. Files outside the account's plan were omitted
-		// server-side, so an out-of-scope file reads as an unknown file here.
-		content, ok := s.Files[subFile]
-		if !ok {
-			err := fmt.Errorf("unknown file %q in skill %q", subFile, skillPath)
-			output.PrintError(output.CodeValidationError, err.Error(), map[string]any{
-				"skill":           skillPath,
-				"available_files": s.SortedFiles(),
-			})
-			return err
-		}
-
+	if subFile == "" {
+		// Return the skill's routing index: authored SKILL.md content if
+		// present, otherwise an index synthesized from the sub-files'
+		// frontmatter descriptions.
 		return skillsOutput(cmd, map[string]any{
-			"path":    path,
+			"path":    s.Path,
 			"name":    s.Name,
-			"content": content,
+			"content": s.Index(),
 		})
 	}
 
-	// Skill not found.
-	available := make([]string, 0, len(resp.Skills))
-	for _, s := range resp.Skills {
-		available = append(available, s.Path)
+	// Look up the sub-file. Files outside the account's plan were omitted
+	// server-side, so an out-of-scope file reads as an unknown file here.
+	content, ok := s.Files[subFile]
+	if !ok {
+		err := fmt.Errorf("unknown file %q in skill %q", subFile, skillPath)
+		output.PrintError(output.CodeValidationError, err.Error(), map[string]any{
+			"skill":           skillPath,
+			"available_files": s.SortedFiles(),
+		})
+		return err
 	}
-	err = fmt.Errorf("unknown skill: %s", skillPath)
-	output.PrintError(output.CodeValidationError, err.Error(), map[string]any{
-		"available_skills": available,
+
+	return skillsOutput(cmd, map[string]any{
+		"path":    path,
+		"name":    s.Name,
+		"content": content,
 	})
-	return err
+}
+
+func hasSkillFile(resp *skills.SkillsResponse, skillPath, subFile string) bool {
+	s := findSkill(resp, skillPath)
+	if s == nil {
+		return false
+	}
+	_, ok := s.Files[subFile]
+	return subFile == "" || ok
+}
+
+func findSkill(resp *skills.SkillsResponse, path string) *skills.Skill {
+	for i := range resp.Skills {
+		if resp.Skills[i].Path == path {
+			return &resp.Skills[i]
+		}
+	}
+	return nil
 }
 
 func runSkillsPrompt(cmd *cobra.Command, args []string) error {

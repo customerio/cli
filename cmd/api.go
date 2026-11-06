@@ -232,6 +232,9 @@ func requestBody(jsonBody json.RawMessage, fileParts []client.FilePart) (*client
 // the caller's request behind it.
 const preflightSpecFetchBudget = 5 * time.Second
 
+// preflightRevalidateAfter is the cache age past which a refusal revalidates first.
+const preflightRevalidateAfter = 10 * time.Minute
+
 // preflightPath rejects a path the API spec does not describe, before the
 // request is sent.
 //
@@ -256,45 +259,22 @@ func preflightPath(cmd *cobra.Command, c *client.Client, httpMethod, resolvedPat
 	if err != nil {
 		// Cold cache. Fetch the spec once so the check can exist at all — a
 		// session that never runs `cio schema` would otherwise never be
-		// checked. The first version of this check refused to download here,
-		// because EnsureSpecs then meant an unbounded flock and two 30s
-		// fetches in front of every request; this fetch is bounded in each of
-		// those respects instead: the lock is tried, not waited for (another
-		// process downloading means we step aside), the download runs under a
-		// short deadline, no prose reaches stderr, and any of those failing
-		// means proceeding without an opinion. The identity's token is used so
-		// what lands in the cache is the same plan-filtered spec `cio schema`
-		// would fetch, never an anonymous one that would mislead it later.
-		// One budget covers the whole branch — the token exchange as well as
-		// the download — so a stalled token endpoint cannot hold the request
-		// any longer than a stalled spec host can.
-		ctx, cancel := context.WithTimeout(cmd.Context(), preflightSpecFetchBudget)
-		defer cancel()
-		opts := specLoadOptions(ctx, c)
-		if c.ServiceAccountToken() != "" && opts.AccessToken == "" {
-			// The token could not be exchanged, or not within the budget.
-			// `cio schema` falls back to an anonymous fetch here; this check
-			// must not: an anonymous spec is the wrong thing to judge a
-			// plan-filtered identity against, and it would land in a partition
-			// the identity's reads never look in.
+		// checked.
+		if idx = fetchPathIndex(cmd, c, false); idx == nil {
 			return nil
 		}
-		idx, err = routes.EnsurePathIndex(ctx, opts)
-		if err != nil {
-			return nil
+	} else if !pathAllowed(idx, httpMethod, resolvedPath) &&
+		time.Since(idx.FetchedAt()) >= preflightRevalidateAfter {
+		// The spec may predate the route, so revalidate before refusing.
+		if fresh := fetchPathIndex(cmd, c, true); fresh != nil {
+			idx = fresh
+		} else if cached, err := routes.LoadPathIndexFromCache(specCacheOptions(c)); err == nil {
+			// A failed refresh may still have written one of the specs.
+			idx = cached
 		}
 	}
 
-	// The route exists: nothing to block, so let the request proceed. The
-	// matched template is of no use here — the request keeps the caller's path.
-	if _, matched := idx.Lookup(httpMethod, resolvedPath); matched {
-		return nil
-	}
-
-	// The path did not match, which is only grounds to reject it if it sits
-	// inside a scope the spec describes. Outside one, the spec has nothing to
-	// say: real endpoints are omitted from it, and whole trees may postdate it.
-	if !idx.Covers(resolvedPath) {
+	if pathAllowed(idx, httpMethod, resolvedPath) {
 		return nil
 	}
 
@@ -353,6 +333,44 @@ func preflightPath(cmd *cobra.Command, c *client.Client, httpMethod, resolvedPat
 		"skip_check_flag":   "--no-preflight",
 	})
 	return err
+}
+
+// pathAllowed reports whether the route exists or lies outside the spec's scopes.
+func pathAllowed(idx *routes.PathIndex, httpMethod, resolvedPath string) bool {
+	if _, matched := idx.Lookup(httpMethod, resolvedPath); matched {
+		return true
+	}
+	return !idx.Covers(resolvedPath)
+}
+
+// fetchPathIndex fetches and indexes the spec, or returns nil; force revalidates the cache.
+//
+// The fetch is bounded: the cache lock is tried, not waited for (another
+// process downloading means we step aside), the download runs under a short
+// deadline, no prose reaches stderr, and any of those failing means nil. The
+// identity's token is used so what lands in the cache is the same plan-filtered
+// spec `cio schema` would fetch, never an anonymous one that would mislead it
+// later. One budget covers the whole fetch (the token exchange as well as the
+// download), so a stalled token endpoint cannot hold the request any longer
+// than a stalled spec host can.
+func fetchPathIndex(cmd *cobra.Command, c *client.Client, force bool) *routes.PathIndex {
+	ctx, cancel := context.WithTimeout(cmd.Context(), preflightSpecFetchBudget)
+	defer cancel()
+	opts := specLoadOptions(ctx, c)
+	if c.ServiceAccountToken() != "" && opts.AccessToken == "" {
+		// The token could not be exchanged, or not within the budget.
+		// `cio schema` falls back to an anonymous fetch here; this check
+		// must not: an anonymous spec is the wrong thing to judge a
+		// plan-filtered identity against, and it would land in a partition
+		// the identity's reads never look in.
+		return nil
+	}
+	opts.ForceRefresh = force
+	idx, err := routes.EnsurePathIndex(ctx, opts)
+	if err != nil {
+		return nil
+	}
+	return idx
 }
 
 // resolveMethod determines the HTTP method from the flag or defaults.

@@ -45,7 +45,7 @@ pass one as a shell argument.
 
 ## Profiles
 
-Credentials live in named profiles (in `~/.cio/config.json`), each with its own
+Credentials live in named profiles in `~/.cio/config.json` by default, each with its own
 token, region, and optional API base URL. This lets one machine hold several
 accounts (e.g. production, staging, a client) without re-authenticating.
 
@@ -61,6 +61,12 @@ or for a whole session with the `CIO_PROFILE` env var. Resolution order:
 `--profile` → `CIO_PROFILE` → stored `current_profile` → `default`. A legacy
 single-credential config is migrated to a `default` profile automatically.
 Profile names allow letters, digits, `.`, `-`, and `_`.
+
+Set `CIO_CONFIG` to a separate config file to keep another account's profiles
+apart. Empty or unset uses the default file; relative paths use the current
+directory. Normal `CIO_TOKEN` commands do not write the credential config file,
+even if that token is already stored. Explicit login, signup verification,
+logout, and profile commands can still write it. Other caches stay in `~/.cio`.
 
 ## The `api` Command
 

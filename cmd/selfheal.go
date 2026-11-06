@@ -29,7 +29,7 @@ const sandboxPromoteThrottle = time.Hour
 // the CLI itself persisted — never an env/flag token, which is not ours to
 // rewrite — and never in read-only mode, where the POST would be blocked.
 func maybePromoteSandboxToken(ctx context.Context, c *client.Client, saToken string, readOnly bool) {
-	if readOnly || !client.IsSandboxServiceAccountToken(saToken) {
+	if readOnly || os.Getenv("CIO_TOKEN") != "" || !client.IsSandboxServiceAccountToken(saToken) {
 		return
 	}
 

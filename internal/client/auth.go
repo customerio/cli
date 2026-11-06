@@ -13,7 +13,6 @@ import (
 const (
 	configDirName  = ".cio"
 	configFileName = "config.json"
-	configLockName = "config.lock"
 	configFileMode = 0600
 	configDirMode  = 0700
 
@@ -131,7 +130,7 @@ func ResolveAccessToken() string {
 // ResolveServiceAccountToken determines the sa_live_ token from (in priority order):
 //  1. Explicit value (from --token flag)
 //  2. CIO_TOKEN environment variable
-//  3. ~/.cio/config.json file
+//  3. Selected config file
 //
 // Returns empty string if no token is found.
 func ResolveServiceAccountToken(explicit string) string {
@@ -153,7 +152,7 @@ func ResolveServiceAccountToken(explicit string) string {
 // ResolveRegion determines the region from (in priority order):
 //  1. Explicit --api-url flag (extract region from URL)
 //  2. CIO_REGION environment variable
-//  3. ~/.cio/config.json
+//  3. Selected config file
 //  4. Default: "us"
 func ResolveRegion(apiURL string, apiURLChanged bool) string {
 	if apiURLChanged && apiURL != "" {
@@ -264,8 +263,9 @@ func CacheAccessToken(accessToken string, expiresIn int, readOnly bool, scopes [
 
 // CacheAccessTokenForServiceAccount stores a JWT only when the stored config
 // still belongs to the same service-account token that minted the JWT.
+// CIO_TOKEN sessions do not update the stored cache.
 func CacheAccessTokenForServiceAccount(serviceAccountToken, accessToken string, expiresIn int, readOnly bool, scopes []string) error {
-	if serviceAccountToken == "" {
+	if serviceAccountToken == "" || os.Getenv("CIO_TOKEN") != "" {
 		return nil
 	}
 	return cacheAccessToken(serviceAccountToken, accessToken, expiresIn, readOnly, scopes)
@@ -296,7 +296,7 @@ func cacheAccessToken(serviceAccountToken, accessToken string, expiresIn int, re
 	return writeConfigLocked(cfg)
 }
 
-// ReadCredentials reads the active profile's credentials from ~/.cio/config.json.
+// ReadCredentials reads the active profile's credentials from the selected config file.
 // Returns an error wrapping os.ErrNotExist when the profile is absent.
 func ReadCredentials() (*Credentials, error) {
 	cfg, err := readConfig()
@@ -311,7 +311,7 @@ func ReadCredentials() (*Credentials, error) {
 	return creds, nil
 }
 
-// WriteCredentials writes the active profile's credentials to ~/.cio/config.json
+// WriteCredentials writes the active profile's credentials to the selected config file
 // with 0600 permissions. Holds an exclusive lock for the duration of the write.
 func WriteCredentials(creds *Credentials) error {
 	unlock, err := lockConfigDir()
@@ -364,20 +364,20 @@ func DeleteCredentials() error {
 	return writeConfigLocked(cfg)
 }
 
-// lockConfigDir acquires an exclusive file lock on the config directory.
-// The lock is held on a dedicated ~/.cio/config.lock file so that lock
-// acquisition never conflicts with credential read/write semantics.
+// lockConfigDir locks a sibling of the selected config file. Keeping the lock
+// separate from the config lets atomic renames preserve the lock.
 // Returns an unlock function that must be called when done.
 func lockConfigDir() (unlock func(), err error) {
-	dir, err := configDirPath()
+	path, err := configFilePath()
 	if err != nil {
 		return nil, err
 	}
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, configDirMode); err != nil {
 		return nil, fmt.Errorf("create config dir: %w", err)
 	}
 
-	lockPath := filepath.Join(dir, configLockName)
+	lockPath := strings.TrimSuffix(path, ".json") + ".lock"
 	unlock, err = filelock.Lock(lockPath, configFileMode)
 	if err != nil {
 		return nil, fmt.Errorf("acquire config lock: %w", err)
@@ -400,6 +400,9 @@ func configDirPath() (string, error) {
 }
 
 func configFilePath() (string, error) {
+	if path := os.Getenv("CIO_CONFIG"); path != "" {
+		return path, nil
+	}
 	dir, err := configDirPath()
 	if err != nil {
 		return "", err

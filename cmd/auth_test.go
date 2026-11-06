@@ -19,6 +19,13 @@ import (
 	"github.com/spf13/pflag"
 )
 
+// Keep tests independent of the developer's credential environment.
+func TestMain(m *testing.M) {
+	_ = os.Unsetenv("CIO_CONFIG")
+	_ = os.Unsetenv("CIO_TOKEN")
+	os.Exit(m.Run())
+}
+
 func executeCommand(args ...string) (stdout, stderr string, err error) {
 	stdoutBuf := new(bytes.Buffer)
 	stderrBuf := new(bytes.Buffer)
