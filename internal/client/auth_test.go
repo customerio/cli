@@ -9,6 +9,13 @@ import (
 	"time"
 )
 
+// Keep tests independent of the developer's credential environment.
+func TestMain(m *testing.M) {
+	_ = os.Unsetenv("CIO_CONFIG")
+	_ = os.Unsetenv("CIO_TOKEN")
+	os.Exit(m.Run())
+}
+
 func TestResolveServiceAccountToken_ExplicitFirst(t *testing.T) {
 	t.Setenv("CIO_TOKEN", "sa_live_env")
 	got := ResolveServiceAccountToken("sa_live_explicit")

@@ -40,7 +40,7 @@ func ValidateProfileName(name string) error {
 	return nil
 }
 
-// storedConfig is the on-disk shape of ~/.cio/config.json. It holds one or more
+// storedConfig is the on-disk shape of the selected config file. It holds one or more
 // named profiles, each with its own credentials, region, and optional base URL.
 type storedConfig struct {
 	// CurrentProfile is the profile used when --profile / CIO_PROFILE are unset.
@@ -100,7 +100,7 @@ func storedCurrentProfile(cfg *storedConfig) string {
 	return DefaultProfileName
 }
 
-// readConfig reads ~/.cio/config.json, migrating a legacy flat credentials file
+// readConfig reads the selected config file, migrating a legacy flat credentials file
 // into a single "default" profile. Returns the underlying read error (including
 // os.ErrNotExist) when the file is absent.
 func readConfig() (*storedConfig, error) {
@@ -162,11 +162,12 @@ func readConfigOrEmpty() *storedConfig {
 // writeConfigLocked performs an atomic write (temp file + rename) of the config
 // file. Callers must already hold the config-dir lock.
 func writeConfigLocked(cfg *storedConfig) error {
-	dir, err := configDirPath()
+	path, err := configFilePath()
 	if err != nil {
 		return err
 	}
 
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, configDirMode); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
@@ -177,7 +178,7 @@ func writeConfigLocked(cfg *storedConfig) error {
 	}
 	data = append(data, '\n')
 
-	tmp, err := os.CreateTemp(dir, configFileName+".tmp.*")
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp.*")
 	if err != nil {
 		return fmt.Errorf("create temp config: %w", err)
 	}
@@ -197,7 +198,7 @@ func writeConfigLocked(cfg *storedConfig) error {
 		return fmt.Errorf("close temp config: %w", err)
 	}
 
-	if err := os.Rename(tmpName, filepath.Join(dir, configFileName)); err != nil {
+	if err := os.Rename(tmpName, path); err != nil {
 		return fmt.Errorf("rename temp config: %w", err)
 	}
 

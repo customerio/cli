@@ -104,7 +104,8 @@ var authCmd = &cobra.Command{
 	Short: "Authenticate Customer.io CLI with the Customer.io API",
 	Long: `Manage authentication for the Customer.io CLI.
 
-Credentials are stored in ~/.cio/config.json.
+Credentials are stored in ~/.cio/config.json by default.
+Set CIO_CONFIG to use a separate config file.
 You can also set the CIO_TOKEN environment variable or pass --token on any command.
 
 AI agents can sign the user in: see 'cio auth login --help'. If the user
@@ -282,7 +283,7 @@ re-authenticates whichever profile is currently selected (see 'cio profile').`,
 
 		return output.FprintJSON(cmd.OutOrStdout(), map[string]any{
 			"status":      "ok",
-			"message":     "Authenticated successfully. Credentials saved to ~/.cio/config.json",
+			"message":     "Authenticated successfully. Credentials saved to the selected config file",
 			"profile":     profile,
 			"account_id":  result.AccountID,
 			"region":      result.Region,
@@ -300,7 +301,7 @@ re-authenticates whichever profile is currently selected (see 'cio profile').`,
 var authLogoutCmd = &cobra.Command{
 	Use:   "logout",
 	Short: "Remove stored authentication credentials",
-	Long:  "Delete the active profile's stored credentials from ~/.cio/config.json.",
+	Long:  "Delete the active profile's stored credentials from the selected config file.",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		profile := client.ActiveProfileName()
@@ -311,7 +312,7 @@ var authLogoutCmd = &cobra.Command{
 
 		return output.FprintJSON(cmd.OutOrStdout(), map[string]any{
 			"status":  "ok",
-			"message": fmt.Sprintf("Credentials for profile %q removed from ~/.cio/config.json", profile),
+			"message": fmt.Sprintf("Credentials for profile %q removed from the selected config file", profile),
 			"profile": profile,
 		})
 	},
@@ -334,7 +335,7 @@ var authStatusCmd = &cobra.Command{
 Token resolution order:
   1. --token flag
   2. CIO_TOKEN environment variable
-  3. ~/.cio/config.json`,
+  3. Config file selected by CIO_CONFIG, or ~/.cio/config.json`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		tokenFlag, _ := cmd.Flags().GetString("token")
@@ -427,7 +428,7 @@ var authTokenCmd = &cobra.Command{
 Token resolution order:
   1. --token flag
   2. CIO_TOKEN environment variable
-  3. ~/.cio/config.json`,
+  3. Config file selected by CIO_CONFIG, or ~/.cio/config.json`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		tokenFlag, _ := cmd.Flags().GetString("token")
@@ -554,7 +555,7 @@ func runAuthSignupVerify(cmd *cobra.Command, args []string) error {
 
 // saveSignupCredentials extracts the bootstrap token + account_id from a
 // successful /v1/account_signup/code response and writes them to
-// ~/.cio/config.json. Region priority: response data_center (authoritative
+// the selected config file. Region priority: response data_center (authoritative
 // from server), then request body data_center, then --api-url, then "us".
 func saveSignupCredentials(response json.RawMessage, requestBody []byte, baseURL string) error {
 	var parsed struct {
@@ -641,7 +642,7 @@ func runSignupRequest(cmd *cobra.Command, path string) error {
 }
 
 // loadStoredServiceAccountToken reads the saved sa_live_ token from
-// ~/.cio/config.json. It deliberately ignores CIO_TOKEN and the --token
+// the selected config file. It deliberately ignores CIO_TOKEN and the --token
 // flag — `cio auth login` is about persisting credentials, so we only
 // branch into the handoff flow when we already wrote a config file.
 func loadStoredServiceAccountToken() string {
