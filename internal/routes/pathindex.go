@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // PathIndex is a lightweight view of the API surface: the HTTP method and path
@@ -17,6 +18,8 @@ import (
 // as a pre-send check on every call rather than only in `cio schema`.
 type PathIndex struct {
 	entries []indexEntry
+	// fetchedAt is the oldest spec's last fetch or revalidation; zero if unknown.
+	fetchedAt time.Time
 }
 
 type indexEntry struct {
@@ -47,9 +50,9 @@ var pathItemVerbs = map[string]bool{
 }
 
 // LoadPathIndexFromCache decodes the path templates out of whatever specs the
-// cache already holds. It reads files and nothing else: no download, no cache
-// lock, no metadata — the common, ~25ms case for a check that runs before
-// every request.
+// cache already holds, plus meta.json for their age. It reads files and nothing
+// else: no download, no cache lock — the common, ~25ms case for a check that
+// runs before every request.
 //
 // Reading without the lock is safe because cached specs are replaced by rename,
 // so a reader sees one whole version or the previous one, never a torn file.
@@ -63,6 +66,8 @@ func LoadPathIndexFromCache(opts LoadRegistryOptions) (*PathIndex, error) {
 	}
 
 	idx := &PathIndex{}
+	meta := readMeta(cacheDir)
+	fetchedAt, knownAge := time.Time{}, true
 	for _, src := range defaultSpecSources {
 		data, readErr := os.ReadFile(filepath.Join(cacheDir, src.Name+".json"))
 		if readErr != nil {
@@ -72,6 +77,16 @@ func LoadPathIndexFromCache(opts LoadRegistryOptions) (*PathIndex, error) {
 		// one still describes its own tree, and a tree with no routes indexed
 		// simply goes unjudged.
 		_ = idx.add(data)
+		entry := meta.Specs[src.Name]
+		switch {
+		case entry == nil || entry.FetchedAt.IsZero():
+			knownAge = false
+		case fetchedAt.IsZero() || entry.FetchedAt.Before(fetchedAt):
+			fetchedAt = entry.FetchedAt
+		}
+	}
+	if knownAge {
+		idx.fetchedAt = fetchedAt
 	}
 
 	if len(idx.entries) == 0 {
@@ -153,6 +168,12 @@ func (idx *PathIndex) push(httpMethod, path string) {
 		path:       path,
 		segments:   splitPathSegments(path),
 	})
+}
+
+// FetchedAt reports when the oldest cached spec behind the index was last
+// fetched or revalidated. It is zero when unknown, as for EnsurePathIndex.
+func (idx *PathIndex) FetchedAt() time.Time {
+	return idx.fetchedAt
 }
 
 // Len reports how many method/path pairs the index holds.

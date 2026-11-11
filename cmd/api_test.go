@@ -1259,3 +1259,36 @@ func TestAPI_JQOnEmptyWriteResponseWarns(t *testing.T) {
 		t.Errorf("expected a warning that the response has no body, got %q", stderr)
 	}
 }
+
+func TestAPITokenEnvironmentDoesNotWriteConfig(t *testing.T) {
+	for _, token := range []string{"sa_live_test123", "sa_sandbox_test123"} {
+		t.Run(token, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("CIO_TOKEN", token)
+			t.Setenv("CIO_ACCESS_TOKEN", "")
+			t.Setenv("CIO_PROFILE", "")
+			server := oauthServer(t, token)
+			defer server.Close()
+			if err := client.WriteCredentials(&client.Credentials{ServiceAccountToken: token, AccountID: "1"}); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(home, ".cio", "config.json")
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, stderr, err := executeCommand("api", "/v1/accounts/current", "--api-url", server.URL, "--no-preflight")
+			if err != nil {
+				t.Fatalf("api: %v: %s", err, stderr)
+			}
+			after, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(after) != string(before) {
+				t.Fatal("CIO_TOKEN session modified stored credentials")
+			}
+		})
+	}
+}

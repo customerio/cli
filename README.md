@@ -110,10 +110,25 @@ cio auth logout
 
 1. `--token` flag (highest priority)
 2. `CIO_TOKEN` environment variable
-3. `~/.cio/config.json` file (lowest priority)
+3. Config file selected by `CIO_CONFIG`, or `~/.cio/config.json` by default
 
 When you use `CIO_TOKEN` or `--token` directly on normal commands, you may
 also need `CIO_REGION=us|eu` or `--api-url`.
+
+Normal commands authenticated with `CIO_TOKEN` do not write the credential
+config file, even when the same token is already stored there. Explicit
+`auth login`, signup verification, logout, and profile management still save
+or remove credentials when requested. API specs and other caches may be written.
+
+Set `CIO_CONFIG` to a separate file when another account must not share your
+stored profiles. An empty or unset value uses `~/.cio/config.json`. Relative
+paths resolve from the current directory. The override applies to credential
+reads, writes, JWT caching, and profile commands. Other caches stay in `~/.cio`.
+
+```bash
+CIO_CONFIG="$HOME/.cio/agent.json" cio auth login --from-clipboard --wait
+CIO_CONFIG="$HOME/.cio/agent.json" cio profile list
+```
 
 ### Profiles
 
