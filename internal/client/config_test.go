@@ -266,3 +266,84 @@ func TestListProfiles_CurrentTracksStoredNotOverride(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigOverrideIsolatesCredentials(t *testing.T) {
+	t.Setenv("CIO_TOKEN", "")
+	for _, name := range []string{"nested/agent.json", "agent.lock", "relative.json"} {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("CIO_CONFIG", "")
+			t.Setenv("CIO_PROFILE", "")
+			resetActiveProfile(t)
+			if err := WriteCredentials(&Credentials{ServiceAccountToken: "sa_live_personal"}); err != nil {
+				t.Fatal(err)
+			}
+			defaultPath := filepath.Join(home, ".cio", "config.json")
+			before, err := os.ReadFile(defaultPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(t.TempDir(), name)
+			if name == "relative.json" {
+				t.Chdir(filepath.Dir(path))
+				t.Setenv("CIO_CONFIG", name)
+			} else {
+				t.Setenv("CIO_CONFIG", path)
+			}
+			if err := WriteCredentials(&Credentials{ServiceAccountToken: "sa_live_agent"}); err != nil {
+				t.Fatal(err)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("override file not written: %v", err)
+			}
+			if !strings.Contains(string(raw), "sa_live_agent") {
+				t.Fatal("override file missing agent credentials")
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Mode().Perm() != 0600 {
+				t.Errorf("config mode = %o, want 600", info.Mode().Perm())
+			}
+			if got := ResolveServiceAccountToken(""); got != "sa_live_agent" {
+				t.Fatalf("resolved token = %q", got)
+			}
+			if err := CacheAccessTokenForServiceAccount("sa_live_agent", "jwt-agent", 3600, false, nil); err != nil {
+				t.Fatal(err)
+			}
+			if got := CachedAccessTokenForServiceAccount("sa_live_agent", false, nil); got != "jwt-agent" {
+				t.Fatalf("cached token = %q", got)
+			}
+			SetActiveProfile("second")
+			if err := WriteCredentials(&Credentials{ServiceAccountToken: "sa_live_second"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := SetCurrentProfile("second"); err != nil {
+				t.Fatal(err)
+			}
+			SetActiveProfile("")
+			if got := ResolveServiceAccountToken(""); got != "sa_live_second" {
+				t.Fatalf("second profile token = %q", got)
+			}
+			if err := RemoveProfile("default"); err != nil {
+				t.Fatal(err)
+			}
+			if err := DeleteCredentials(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatalf("override not deleted: %v", err)
+			}
+			after, err := os.ReadFile(defaultPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(after) != string(before) {
+				t.Fatal("default config was modified")
+			}
+		})
+	}
+}

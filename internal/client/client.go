@@ -12,31 +12,21 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/customerio/cli/internal/useragent"
 )
 
-var (
-	commandMu sync.RWMutex
-	command   string
-)
+// command is the X-CIO-Command value. It is written once, before any request
+// is sent, and only read after that, so it needs no lock.
+var command string
 
 // SetCommand records the path of the command being run, without the root name
 // (for example "billing status"), for the X-CIO-Command header. Called once at
 // the start of the root PersistentPreRunE, before any request is sent.
 func SetCommand(path string) {
-	commandMu.Lock()
 	command = strings.TrimSpace(path)
-	commandMu.Unlock()
-}
-
-func currentCommand() string {
-	commandMu.RLock()
-	defer commandMu.RUnlock()
-	return command
 }
 
 var agentCallHeaders = map[string]string{
@@ -82,8 +72,8 @@ func setStandardHeaders(req *http.Request) {
 	} else {
 		req.Header.Set("X-CIO-Source", "CLI")
 	}
-	if cmd := currentCommand(); cmd != "" {
-		req.Header.Set("X-CIO-Command", cmd)
+	if command != "" {
+		req.Header.Set("X-CIO-Command", command)
 	}
 	if grant := os.Getenv("X_CIO_CAPABILITY_GRANT"); grant != "" {
 		req.Header.Set("X-CIO-Capability-Grant", grant)

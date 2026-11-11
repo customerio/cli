@@ -1,11 +1,17 @@
 package cmd
 
 import (
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // preflightSpec is a Journeys OpenAPI fixture with enough of the campaigns
@@ -40,8 +46,16 @@ func preflightSpec() string {
 type preflightServer struct {
 	*httptest.Server
 	mu        sync.Mutex
+	spec      string
 	apiPaths  []string
 	specPaths []string
+}
+
+// setSpec changes the published Journeys spec, as a deploy would.
+func (p *preflightServer) setSpec(spec string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.spec = spec
 }
 
 func (p *preflightServer) requested() []string {
@@ -71,7 +85,7 @@ func newPreflightServer(t *testing.T) *preflightServer {
 	t.Setenv("CIO_TOKEN", "sa_live_test123")
 	t.Setenv("CIO_ACCESS_TOKEN", "")
 
-	p := &preflightServer{}
+	p := &preflightServer{spec: preflightSpec()}
 	p.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/service_accounts/oauth/token":
@@ -80,13 +94,19 @@ func newPreflightServer(t *testing.T) *preflightServer {
 		case "/v1/openapi.json", "/cdp/api/openapi.json":
 			p.mu.Lock()
 			p.specPaths = append(p.specPaths, r.URL.Path)
+			body := p.spec
 			p.mu.Unlock()
-			w.Header().Set("Content-Type", "application/json")
-			if r.URL.Path == "/v1/openapi.json" {
-				_, _ = w.Write([]byte(preflightSpec()))
-			} else {
-				_, _ = w.Write([]byte(`{"openapi":"3.1.0","info":{"title":"CDP","version":"1.0.0"},"paths":{}}`))
+			if r.URL.Path == "/cdp/api/openapi.json" {
+				body = `{"openapi":"3.1.0","info":{"title":"CDP","version":"1.0.0"},"paths":{}}`
 			}
+			etag := fmt.Sprintf(`"%x"`, sha256.Sum256([]byte(body)))
+			w.Header().Set("Etag", etag)
+			if r.Header.Get("If-None-Match") == etag {
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(body))
 			return
 		}
 
@@ -277,9 +297,7 @@ func TestAPIPreflight_BlocksInventedSiblingResource(t *testing.T) {
 	}
 }
 
-// The check reads the spec cache and must never fetch: EnsureSpecs takes an
-// uninterruptible cache lock and can sit through two spec downloads, which is
-// not something a per-request check may put in the caller's way.
+// A recently fetched cache is judged as it stands, refusal included.
 func TestAPIPreflight_NeverFetchesTheSpecItself(t *testing.T) {
 	server := setupPreflightTest(t)
 
@@ -387,5 +405,82 @@ func TestAPIPreflight_CautionsAgainstForcingAGuessedPath(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "HTML page rather than JSON") {
 		t.Errorf("error should name what forcing it returns, got: %s", err.Error())
+	}
+}
+
+// ageSpecCache backdates every cached spec's fetch time.
+func ageSpecCache(t *testing.T, by time.Duration) {
+	t.Helper()
+	paths, err := filepath.Glob(filepath.Join(os.Getenv("HOME"), ".cio", "cache", "specs", "*", "meta.json"))
+	if err != nil || len(paths) == 0 {
+		t.Fatalf("no spec cache metadata found (err %v)", err)
+	}
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("reading %s: %v", path, err)
+		}
+		var meta struct {
+			Specs map[string]map[string]any `json:"specs"`
+		}
+		if err := json.Unmarshal(data, &meta); err != nil {
+			t.Fatalf("parsing %s: %v", path, err)
+		}
+		for _, spec := range meta.Specs {
+			spec["fetched_at"] = time.Now().Add(-by).UTC().Format(time.RFC3339Nano)
+		}
+		data, err = json.Marshal(meta)
+		if err != nil {
+			t.Fatalf("encoding %s: %v", path, err)
+		}
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatalf("writing %s: %v", path, err)
+		}
+	}
+}
+
+// An old cache missing a newly deployed route is revalidated and the request sent.
+func TestAPIPreflight_OldCacheRevalidatesBeforeRefusingANewRoute(t *testing.T) {
+	server := setupPreflightTest(t)
+	server.setSpec(strings.Replace(preflightSpec(), `"paths": {`, `"paths": {
+			"/v1/environments/{environment_id}/campaigns/route": {
+				"post": {"summary": "Dry-run a route"}
+			},`, 1))
+	ageSpecCache(t, time.Hour)
+
+	if _, _, err := executeCommand("api", "/v1/environments/456/campaigns/route",
+		"-X", "POST", "--json", `{}`, "--api-url", server.URL); err != nil {
+		t.Fatalf("a route in the server's current spec should be sent, got: %v", err)
+	}
+	if got := server.requested(); len(got) != 1 || got[0] != "/v1/environments/456/campaigns/route" {
+		t.Errorf("expected the request to be sent once, got %v", got)
+	}
+	if got := server.specFetches(); len(got) == 0 {
+		t.Error("expected the old cache to be revalidated before judging")
+	}
+}
+
+// A 304 still refuses, and resets the cache's age so the next refusal fetches nothing.
+func TestAPIPreflight_RevalidationOfAnUnchangedSpecResetsItsAge(t *testing.T) {
+	server := setupPreflightTest(t)
+	ageSpecCache(t, time.Hour)
+
+	invented := "/v1/environments/456/campaigns/48/actions"
+	if _, _, err := executeCommand("api", invented, "--api-url", server.URL); err == nil {
+		t.Fatal("expected the invented path to be refused after revalidation")
+	}
+	if got := server.specFetches(); len(got) == 0 {
+		t.Error("expected the old cache to be revalidated before refusing")
+	}
+
+	server.forget()
+	if _, _, err := executeCommand("api", invented, "--api-url", server.URL); err == nil {
+		t.Fatal("expected the invented path to be refused again")
+	}
+	if got := server.specFetches(); len(got) != 0 {
+		t.Errorf("a just-revalidated cache must not be fetched again, got %v", got)
+	}
+	if got := server.requested(); len(got) != 0 {
+		t.Errorf("no API request should have been made, got %v", got)
 	}
 }

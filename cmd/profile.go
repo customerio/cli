@@ -21,7 +21,8 @@ letting you switch between accounts (e.g. production, staging, a client) without
 re-authenticating. Select a profile per command with --profile, or set a default
 with 'cio profile use'.
 
-Profiles are stored in ~/.cio/config.json.`,
+Profiles are stored in ~/.cio/config.json by default.
+Set CIO_CONFIG to use a separate config file.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return cmd.Help()
 	},

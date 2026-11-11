@@ -59,6 +59,7 @@ func init() {
 	rootCmd.SetHelpFunc(func(cmd *cobra.Command, args []string) {
 		if cmd == rootCmd {
 			tui.RenderHelp(cmd.OutOrStdout(), topLevelCommands(rootCmd))
+			fmt.Fprintln(cmd.OutOrStdout(), "\nSet CIO_CONFIG to use a separate config file instead of ~/.cio/config.json.")
 			return
 		}
 		defaultHelp(cmd, args)

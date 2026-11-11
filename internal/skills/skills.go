@@ -115,6 +115,7 @@ type SkillsResponse struct {
 	Prompt  string   `json:"prompt"`
 	Skills  []Skill  `json:"skills"`
 	Notices []string `json:"notices,omitempty"`
+	Cached  bool     `json:"-"` // no request was made, so a caller can revalidate a miss
 }
 
 // LoadOptions configures skills loading behavior.
@@ -228,7 +229,7 @@ func EnsureSkills(ctx context.Context, opts LoadOptions) (*SkillsResponse, error
 	ttl := opts.resolveTTL()
 	httpClient := opts.resolveHTTPClient()
 
-	data, err := ensureSkillsData(ctx, httpClient, cacheDir, baseURL, useragent.Get(), opts.AccessToken, opts.CacheScope, meta, ttl, opts.ForceRefresh)
+	data, cached, err := ensureSkillsData(ctx, httpClient, cacheDir, baseURL, useragent.Get(), opts.AccessToken, opts.CacheScope, meta, ttl, opts.ForceRefresh)
 	if err != nil {
 		return nil, err
 	}
@@ -237,6 +238,7 @@ func EnsureSkills(ctx context.Context, opts LoadOptions) (*SkillsResponse, error
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, fmt.Errorf("parse skills response: %w", err)
 	}
+	resp.Cached = cached
 	return &resp, nil
 }
 
@@ -247,7 +249,7 @@ func ensureSkillsData(
 	meta *skillsMeta,
 	ttl time.Duration,
 	forceRefresh bool,
-) ([]byte, error) {
+) (data []byte, cached bool, err error) {
 	cachedPath := filepath.Join(cacheDir, skillsCacheFile)
 
 	// Cache is fresh only when it was fetched with this User-Agent and account
@@ -257,7 +259,7 @@ func ensureSkillsData(
 	if !forceRefresh && meta.ETag != "" && sameVariant && time.Since(meta.FetchedAt) < ttl {
 		data, err := os.ReadFile(cachedPath)
 		if err == nil {
-			return data, nil
+			return data, true, nil
 		}
 		// Cache file missing/corrupt — fall through to download.
 	}
@@ -279,10 +281,10 @@ func ensureSkillsData(
 			data, readErr := os.ReadFile(cachedPath)
 			if readErr == nil {
 				fmt.Fprintf(os.Stderr, "warning: using stale cached skills (download failed: %v)\n", dlErr)
-				return data, nil
+				return data, false, nil
 			}
 		}
-		return nil, dlErr
+		return nil, false, dlErr
 	}
 
 	if newData == nil {
@@ -295,14 +297,14 @@ func ensureSkillsData(
 		}
 		data, err := os.ReadFile(cachedPath)
 		if err != nil {
-			return nil, fmt.Errorf("cache file missing after 304: %w", err)
+			return nil, false, fmt.Errorf("cache file missing after 304: %w", err)
 		}
-		return data, nil
+		return data, false, nil
 	}
 
 	// Got new data — write to cache.
 	if err := writeAtomic(cacheDir, skillsCacheFile, newData); err != nil {
-		return nil, fmt.Errorf("write cache: %w", err)
+		return nil, false, fmt.Errorf("write cache: %w", err)
 	}
 
 	meta.ETag = newETag
@@ -314,7 +316,7 @@ func ensureSkillsData(
 		fmt.Fprintf(os.Stderr, "warning: failed to write skills cache metadata: %v\n", err)
 	}
 
-	return newData, nil
+	return newData, false, nil
 }
 
 func downloadSkills(ctx context.Context, httpClient *http.Client, url, userAgent, accessToken, etag string) (data []byte, newETag string, err error) {

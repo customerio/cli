@@ -81,9 +81,18 @@ func LoadRegistryFromOpenAPI(data []byte) (*Registry, error) {
 		resource, method, httpMethod string
 	}
 	seen := make(map[routeKey]bool)
+	seenPath := make(map[string]bool)
 
-	for path, pathItem := range spec.Paths {
-		for method, op := range pathItem {
+	// Sorted so the same route keeps the plain name in every process when two
+	// paths derive the same key (ranging the map picks one at random).
+	paths := make([]string, 0, len(spec.Paths))
+	for path := range spec.Paths {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+
+	for _, path := range paths {
+		for method, op := range spec.Paths[path] {
 			httpMethod := strings.ToUpper(method)
 
 			// Derive resource + CLI method from the path (reuse existing logic).
@@ -94,9 +103,19 @@ func LoadRegistryFromOpenAPI(data []byte) (*Registry, error) {
 				continue
 			}
 
+			if seenPath[httpMethod+" "+path] {
+				continue
+			}
+			seenPath[httpMethod+" "+path] = true
 			key := routeKey{resource, cliMethod, httpMethod}
 			if seen[key] {
-				continue
+				// A sibling that differs only by a placeholder (deliveries/retry
+				// and deliveries/{id}/retry) is named by that placeholder.
+				cliMethod = disambiguateMethod(cliMethod, colonPath)
+				key = routeKey{resource, cliMethod, httpMethod}
+				if seen[key] {
+					continue
+				}
 			}
 			seen[key] = true
 
@@ -175,6 +194,19 @@ func LoadRegistryFromOpenAPI(data []byte) (*Registry, error) {
 	}
 
 	return reg, nil
+}
+
+// disambiguateMethod suffixes a method name with the path's last placeholder,
+// as "-by-<name>" with a trailing "_id" trimmed: assets/{id} becomes update-by-id
+// next to the bulk assets update. A path with no placeholder keeps its name.
+func disambiguateMethod(method, colonPath string) string {
+	segments := strings.Split(strings.Trim(colonPath, "/"), "/")
+	for i := len(segments) - 1; i >= 0; i-- {
+		if name, ok := strings.CutPrefix(segments[i], ":"); ok {
+			return method + "-by-" + strings.TrimSuffix(name, "_id")
+		}
+	}
+	return method
 }
 
 // openAPIPathToColonPath converts {param} to :param for compatibility with

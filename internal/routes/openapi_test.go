@@ -556,3 +556,68 @@ func TestLoadRegistryFromOpenAPI_ResolvesNestedPropertyRefs(t *testing.T) {
 		t.Error("expected resolved 'detail' to keep its discriminator")
 	}
 }
+
+// Two paths that differ only by a placeholder derive the same resource and
+// method. Both must stay listed, under the same names in every load: the path
+// that sorts first keeps the plain name and the other is named by its last
+// placeholder.
+func TestLoadRegistryFromOpenAPI_SiblingsDifferingByAPlaceholder(t *testing.T) {
+	pairs := []struct {
+		name, httpMethod, resource string
+		first, firstMethod         string
+		sibling, siblingMethod     string
+	}{
+		{"bulk and single action", "post", "deliveries",
+			"/v1/environments/{environment_id}/deliveries/retry", "retry",
+			"/v1/environments/{environment_id}/deliveries/{id}/retry", "retry-by-id"},
+		{"bulk and item update", "put", "assets",
+			"/v1/environments/{environment_id}/assets", "update",
+			"/v1/environments/{environment_id}/assets/{id}", "update-by-id"},
+		{"account and environment scope", "get", "audit_logs",
+			"/v1/accounts/{account_id}/audit_logs", "list",
+			"/v1/environments/{environment_id}/audit_logs", "list-by-environment"},
+	}
+	for _, tc := range pairs {
+		t.Run(tc.name, func(t *testing.T) {
+			spec, err := json.Marshal(map[string]any{
+				"openapi": "3.1.0",
+				"paths": map[string]any{
+					tc.first:   map[string]any{tc.httpMethod: map[string]any{"summary": "first"}},
+					tc.sibling: map[string]any{tc.httpMethod: map[string]any{"summary": "sibling"}},
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Go randomizes map iteration, so load repeatedly to catch an
+			// order-dependent name or drop.
+			for i := 0; i < 50; i++ {
+				reg, err := LoadRegistryFromOpenAPI(spec)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := len(reg.ByResource[tc.resource]); got != 2 {
+					t.Fatalf("load %d: %s has %d routes, want 2", i, tc.resource, got)
+				}
+				for method, path := range map[string]string{tc.firstMethod: tc.first, tc.siblingMethod: tc.sibling} {
+					route := reg.FindRoute(tc.resource, method)
+					if route == nil || route.Path != path {
+						t.Fatalf("load %d: %s.%s = %+v, want %s", i, tc.resource, method, route, path)
+					}
+				}
+			}
+		})
+	}
+}
+
+// The same method spelled twice on one path is one route, not a sibling.
+func TestLoadRegistryFromOpenAPI_DropsATrueDuplicate(t *testing.T) {
+	spec := `{"paths":{"/v1/environments/{environment_id}/widgets":{"get":{"summary":"a"},"GET":{"summary":"b"}}}}`
+	reg, err := LoadRegistryFromOpenAPI([]byte(spec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(reg.ByResource["widgets"]); got != 1 {
+		t.Fatalf("widgets has %d routes, want 1", got)
+	}
+}
