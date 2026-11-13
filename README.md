@@ -53,7 +53,7 @@ cio skills install --dry-run         # show what would be written
 cio skills install --force           # overwrite an existing SKILL.md
 ```
 
-This installs only the Customer.io bootstrap skill — its `SKILL.md` routing index is written to `<target>/skills/<name>/` for Claude Code (`.claude`) and the open agent skills convention (`.agents`) Codex, Cursor, and Windsurf read. Every other reference (Journeys, CDP, Design Studio, recipes) is served by the backend and pulled on demand via `cio skills read <skill>`, so nothing else is copied locally and the content stays current.
+This installs only the Customer.io bootstrap skill — its `SKILL.md` routing index is written to `<target>/skills/<name>/` for Claude Code (`.claude`) and the open agent skills convention (`.agents`) Codex, Cursor, and Windsurf read. Every other reference (Journeys, CDP, Design Studio, recipes, mobile) is served by the backend and pulled on demand via `cio skills read <skill>`, so nothing else is copied locally and the content stays current.
 
 Or install via the open agent skills tooling:
 
