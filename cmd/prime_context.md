@@ -115,6 +115,7 @@ cio skills                              # list available skills
 cio skills read fly-api                 # Customer.io API guidance — routes to sub-files
 cio skills read fly-api/campaigns.md    # campaign workflows, edge wiring, gotchas
 cio skills read cio                     # skills unique to the CLI (onboarding, auth/login, integration)
+cio skills read mobile-sdk              # mobile SDK setup, push, and troubleshooting (iOS, Android, React Native, Expo, Flutter)
 cio skills read design-studio           # Design Studio email creation workflow
 cio skills read design-studio/nodes.md  # node creation, component markup
 ```
@@ -127,6 +128,7 @@ cio skills read design-studio/nodes.md  # node creation, component markup
 | What params/body does campaigns.create take? | `cio schema campaigns.create` |
 | How do I wire campaign actions + edges? | `cio skills read fly-api/campaigns.md` |
 | How do I create a Design Studio email? | `cio skills read design-studio/nodes.md` |
+| How do I add Customer.io or push to my mobile app? | `cio skills read mobile-sdk` |
 | What's the multi-step campaign creation flow? | `cio skills read fly-api/campaigns.md` |
 
 ## Global Flags
