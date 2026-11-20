@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -24,7 +25,10 @@ var apiCmd = &cobra.Command{
 	Long: `Make an authenticated HTTP request to Customer.io APIs.
 
 The path argument is an API endpoint, e.g. /v1/environments/{environment_id}/campaigns.
-Placeholders like {environment_id} are substituted from --params. The HTTP method
+Placeholders like {environment_id} are substituted from --params. A query string in
+the path (?limit=10, with the path quoted for the shell) is read like --params. Pass an ID
+taken from data through a placeholder: pasted into the path, a ? in the ID would start
+the query. The HTTP method
 defaults to GET (or POST if --json or --file is provided); override with -X/--method.
 
 Endpoints that take a file accept it through --file, which sends the request as
@@ -39,6 +43,7 @@ Use 'cio schema' to discover endpoints and their parameters.
 Examples:
   cio api /v1/environments/{environment_id}/campaigns --params '{"environment_id": "456"}'
   cio api /v1/environments/{environment_id}/campaigns/{campaign_id} --params '{"environment_id": "456", "campaign_id": "789"}'
+  cio api '/v1/environments/{environment_id}/campaigns?limit=10&page=2' --params '{"environment_id": "456"}'
   cio api /v1/environments/{environment_id}/campaigns -X POST --params '{"environment_id": "456"}' --json '{"campaign": {"name": "Test"}}'
   cio api /v1/accounts/{account_id} --params '{"account_id": "123"}'
   cio api /v1/environments/{environment_id}/segments --params '{"environment_id": "456"}' --dry-run
@@ -64,8 +69,20 @@ func runAPI(cmd *cobra.Command, args []string) error {
 	if !strings.HasPrefix(pathTemplate, "/") {
 		pathTemplate = "/" + pathTemplate
 	}
-	if strings.ContainsAny(pathTemplate, "?#") {
-		err := fmt.Errorf("path must not contain query or fragment characters; pass query values via --params")
+	if strings.Contains(pathTemplate, "#") {
+		err := fmt.Errorf("path must not contain a fragment (#)")
+		output.PrintError(output.CodeValidationError, err.Error(), nil)
+		return err
+	}
+	// A query string written into the path is the same as passing it with --params.
+	pathTemplate, inlineQuery, _ := strings.Cut(pathTemplate, "?")
+	// A {placeholder} is only filled in the path; after the ? it would go out as the literal text.
+	if pathParamRegex.MatchString(inlineQuery) {
+		err := fmt.Errorf("the query string in the path has a {placeholder}, which is only filled in the path: write the value itself, or pass it with --params")
+		output.PrintError(output.CodeValidationError, err.Error(), nil)
+		return err
+	}
+	if err := validate.ValidateInlineQuery(inlineQuery); err != nil {
 		output.PrintError(output.CodeValidationError, err.Error(), nil)
 		return err
 	}
@@ -87,7 +104,7 @@ func runAPI(cmd *cobra.Command, args []string) error {
 
 	// Parse --params: separate path params from query params.
 	paramsRaw, _ := cmd.Flags().GetStringArray("params")
-	pathParams, queryParams, err := parseAPIParams(pathTemplate, paramsRaw)
+	pathParams, queryParams, err := parseAPIParams(pathTemplate, append(paramsRaw, inlineQuery))
 	if err != nil {
 		output.PrintError(output.CodeValidationError, err.Error(), nil)
 		return err
@@ -300,7 +317,8 @@ func preflightPath(cmd *cobra.Command, c *client.Client, httpMethod, resolvedPat
 		return err
 	}
 
-	suggestions := idx.Suggest(resolvedPath, 5)
+	const maxClosest = 5
+	suggestions := idx.Suggest(resolvedPath, maxClosest)
 	hint := "run 'cio schema' to list resources"
 	// Suggest ranks by shared leading segments, so an unknown resource still
 	// gets a neighbour from under the same scope — a different resource.
@@ -312,14 +330,42 @@ func preflightPath(cmd *cobra.Command, c *client.Client, httpMethod, resolvedPat
 			}
 		}
 	}
+	// Suggest only offers siblings of a nested miss, while a nested read
+	// usually belongs at the resource's own route or in its parent read. A
+	// write gets none: the rooted write would act on the whole resource.
+	var rooted, parent *routes.Suggestion
+	if httpMethod == "GET" {
+		rooted, parent = idx.NestedAlternatives(resolvedPath)
+	}
+	var alternatives []routes.Suggestion
+	var tries []string
+	if rooted != nil {
+		alternatives = append(alternatives, *rooted)
+		tries = append(tries, rooted.String())
+	}
+	if parent != nil {
+		alternatives = append(alternatives, *parent)
+		requestedSegs := strings.Split(strings.Trim(resolvedPath, "/"), "/")
+		child := requestedSegs[len(strings.Split(strings.Trim(parent.Path, "/"), "/"))]
+		tries = append(tries, fmt.Sprintf("the parent %s, which may already include %s", parent, child))
+	}
+	if len(tries) > 0 {
+		hint = "try " + strings.Join(tries, " or ") + "; " + hint
+	}
 	// The spec omits a few real endpoints, and for those `cio schema` cannot
 	// list what it does not describe — so the way past a wrong rejection has to
 	// be in the message, not only in the details below.
 	hint += ". --no-preflight resends without this check, but it cannot make a missing endpoint exist: " +
 		"an unknown path returns the app's HTML page rather than JSON, so reserve it for an endpoint you know the spec omits"
 
-	closest := make([]string, 0, len(suggestions))
-	for _, s := range suggestions {
+	closest := make([]string, 0, maxClosest)
+	for _, s := range append(alternatives, suggestions...) {
+		if len(closest) == maxClosest {
+			break
+		}
+		if slices.Contains(closest, s.String()) {
+			continue
+		}
 		closest = append(closest, s.String())
 	}
 

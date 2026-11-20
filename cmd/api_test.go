@@ -412,25 +412,144 @@ func TestAPI_PathParamRejectsDotSegments(t *testing.T) {
 	}
 }
 
-func TestAPI_RejectsQueryOrFragmentInPathTemplate(t *testing.T) {
+func TestAPI_QueryStringInPath(t *testing.T) {
 	server, cleanup := setupAPITest(t)
 	defer cleanup()
 
-	tests := []string{
-		"/v1/environments/{environment_id}/campaigns?include_archived=true",
-		"/v1/environments/{environment_id}/campaigns#section",
+	stdout, _, err := executeCommand("api", "/v1/environments/{environment_id}/campaigns?include_archived=true&name=credit%20builder",
+		"--api-url", server.URL,
+		"--params", `{"environment_id": "217838"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 
-	for _, path := range tests {
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if path := result["path"].(string); path != "/v1/environments/217838/campaigns" {
+		t.Errorf("want the query string kept out of the path, got %q", path)
+	}
+	query := result["query"].(map[string]any)
+	if v := query["include_archived"].([]any)[0].(string); v != "true" {
+		t.Errorf("want include_archived=true, got %q", v)
+	}
+	if v := query["name"].([]any)[0].(string); v != "credit builder" {
+		t.Errorf("want decoded name, got %q", v)
+	}
+}
+
+func TestAPI_QueryStringInPathAndParamsSameKey(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	_, _, err := executeCommand("api", "/v1/environments/{environment_id}/campaigns?limit=5",
+		"--api-url", server.URL,
+		"--params", `{"environment_id": "217838", "limit": "10"}`)
+	if err == nil {
+		t.Fatal("expected error for a key given in the path and in --params")
+	}
+	if !strings.Contains(err.Error(), "appears more than once") {
+		t.Errorf("expected duplicate key error, got: %v", err)
+	}
+}
+
+func TestAPI_QueryStringInPathValidatedLikeParams(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	_, _, err := executeCommand("api", "/v1/environments/{environment_id}/customers?email=a+tag@b.com",
+		"--api-url", server.URL,
+		"--params", `{"environment_id": "217838"}`)
+	if err == nil {
+		t.Fatal("expected error for a bare '+' in the path's query string")
+	}
+	if !strings.Contains(err.Error(), "ambiguous") {
+		t.Errorf("expected ambiguous '+' error, got: %v", err)
+	}
+}
+
+func TestAPI_QueryStringInPathMustBePairs(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	for _, tc := range []struct{ path, want string }{
+		{"/v1/environments/{environment_id}/campaigns?include_archived", "key=value pairs"},
+		{`/v1/environments/{environment_id}/campaigns?{"name":"a=b"}`, "key=value pairs"},
+		{"/v1/environments/{environment_id}/campaigns?name=rock&roll", "%26"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			_, _, err := executeCommand("api", tc.path,
+				"--api-url", server.URL,
+				"--params", `{"environment_id": "217838"}`)
+			if err == nil {
+				t.Fatal("expected error for a query string that is not key=value pairs")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("expected %q in the error, got: %v", tc.want, err)
+			}
+		})
+	}
+}
+
+func TestAPI_QueryStringInPathFillsPlaceholder(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	stdout, _, err := executeCommand("api", "/v1/environments/{environment_id}/customers/{customer_id}?customer_id=profile_123&limit=10",
+		"--api-url", server.URL,
+		"--params", `{"environment_id": "217838"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if uri := result["request_uri"].(string); uri != "/v1/environments/217838/customers/profile_123?limit=10" {
+		t.Errorf("want the placeholder filled and only limit in the query, got %q", uri)
+	}
+
+	_, _, err = executeCommand("api", "/v1/environments/{environment_id}/customers/{customer_id}?customer_id=a%2Fb",
+		"--api-url", server.URL,
+		"--params", `{"environment_id": "217838"}`)
+	if err == nil || !strings.Contains(err.Error(), "reserved path character") {
+		t.Fatalf("expected the path checks to reject an escaped / bound from the query string, got: %v", err)
+	}
+}
+
+func TestAPI_PlaceholderInPathQueryRejected(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	_, _, err := executeCommand("api", "/v1/environments/{environment_id}/campaigns?name={customer_id}",
+		"--api-url", server.URL,
+		"--params", `{"environment_id": "217838", "customer_id": "x&force=true"}`)
+	if err == nil {
+		t.Fatal("expected error for a placeholder in the path's query string")
+	}
+	if !strings.Contains(err.Error(), "only filled in the path") {
+		t.Errorf("expected the placeholder error, got: %v", err)
+	}
+}
+
+func TestAPI_RejectsFragmentInPathTemplate(t *testing.T) {
+	server, cleanup := setupAPITest(t)
+	defer cleanup()
+
+	for _, path := range []string{
+		"/v1/environments/{environment_id}/campaigns#section",
+		"/v1/environments/{environment_id}/campaigns?name=first#section",
+	} {
 		t.Run(path, func(t *testing.T) {
 			_, _, err := executeCommand("api", path,
 				"--api-url", server.URL,
 				"--params", `{"environment_id": "217838"}`)
 			if err == nil {
-				t.Fatal("expected error for query or fragment in path")
+				t.Fatal("expected error for a fragment in the path")
 			}
-			if !strings.Contains(err.Error(), "query or fragment") {
-				t.Errorf("expected query or fragment error, got: %v", err)
+			if !strings.Contains(err.Error(), "fragment") {
+				t.Errorf("expected fragment error, got: %v", err)
 			}
 		})
 	}

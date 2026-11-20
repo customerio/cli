@@ -2,8 +2,9 @@
 name: cio
 description: >
   Customer.io CLI - use for Customer.io, Journeys, CDP Pipelines, new-account
-  onboarding and signup, app integration, SDK setup, message design, message
-  automation (automations, broadcasts, transactional messages), plans and
+  onboarding and signup, app integration, SDK setup, mobile SDKs (iOS,
+  Android, React Native, Expo, Flutter), push notifications, message design,
+  message automation (automations, broadcasts, transactional messages), plans and
   billing, service account tokens, sources, destinations, identify/track
   events, and fly.customer.io / cdp.customer.io errors. Trigger even when the
   user does not name the CLI.
@@ -41,6 +42,8 @@ Common routing:
 
 - New-account setup, signup and login, first app integration, and plan or
   billing questions start with `cio prime` and `cio skills read cio`.
+- Mobile apps (iOS, Android, React Native, Expo, Flutter) should use
+  `cio skills read mobile-sdk` for SDK setup, push, and SDK troubleshooting.
 - Existing Journeys resources such as campaigns, segments, templates,
   customers, newsletters, and subscription topics should use
   `cio skills read fly-api`.

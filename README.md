@@ -53,7 +53,7 @@ cio skills install --dry-run         # show what would be written
 cio skills install --force           # overwrite an existing SKILL.md
 ```
 
-This installs only the Customer.io bootstrap skill — its `SKILL.md` routing index is written to `<target>/skills/<name>/` for Claude Code (`.claude`) and the open agent skills convention (`.agents`) Codex, Cursor, and Windsurf read. Every other reference (Journeys, CDP, Design Studio, recipes) is served by the backend and pulled on demand via `cio skills read <skill>`, so nothing else is copied locally and the content stays current.
+This installs only the Customer.io bootstrap skill — its `SKILL.md` routing index is written to `<target>/skills/<name>/` for Claude Code (`.claude`) and the open agent skills convention (`.agents`) Codex, Cursor, and Windsurf read. Every other reference (Journeys, CDP, Design Studio, recipes, mobile) is served by the backend and pulled on demand via `cio skills read <skill>`, so nothing else is copied locally and the content stays current.
 
 Or install via the open agent skills tooling:
 
@@ -179,7 +179,7 @@ CIO_TOKEN=sa_live_xxx cio api /v1/environments/{environment_id}/campaigns --para
 
 ## Usage
 
-Use `cio api <path>` for any API endpoint. Path placeholders are resolved from `--params`. The HTTP method defaults to GET (or POST if `--json` is provided); override with `-X`:
+Use `cio api <path>` for any API endpoint. Path placeholders are resolved from `--params`. Pass IDs taken from data that way: pasted into the path, a `?` in an ID would start the query. The HTTP method defaults to GET (or POST if `--json` is provided); override with `-X`:
 
 `--params` takes a JSON object; URL-query syntax (`--params 'type=event&size=200'`) is also accepted. Repeat `--params` to split values across flags (`--params type=event --params size=200`); a key given more than once is an error. In the query form a bare `+` is rejected as ambiguous — write `%20` for a space and `%2B` for a plus (`email=a%2Btag@b.com`), or use the JSON form, where both are literal.
 
@@ -265,7 +265,7 @@ cio api /v1/environments/{environment_id}/campaigns \
 | `--profile <name>` | `CIO_PROFILE` | Configuration profile to use |
 | `-X, --method` | | HTTP method override (default: GET, or POST if --json) |
 | `--json <payload>` | | Raw JSON request body or `@filename` to read from file |
-| `--params <json>` | | Query parameters as JSON → query string |
+| `--params <json>` | | Query parameters as JSON → query string (a `?k=v` query string in the quoted path is read the same way: `cio api '/v1/environments/{environment_id}/campaigns?limit=10&page=2' --params '{"environment_id": "456"}'`) |
 | `--jq <expr>` | | jq expression filter (via gojq) |
 | `--dry-run` | | Validate + print request, skip execution |
 | `--api-url <url>` | | API base URL override |

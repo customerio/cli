@@ -304,14 +304,74 @@ func (idx *PathIndex) Suggest(path string, limit int) []Suggestion {
 			continue
 		}
 		seen[key] = true
-		resource, _ := deriveFromWalkedPath(c.entry.path, c.entry.httpMethod)
-		out = append(out, Suggestion{
-			HTTPMethod: c.entry.httpMethod,
-			Path:       c.entry.path,
-			Resource:   resource,
-		})
+		out = append(out, newSuggestion(c.entry.httpMethod, c.entry.path))
 	}
 	return out
+}
+
+// NestedAlternatives names where a nested path that matched no route most
+// likely lives, since Suggest only offers its siblings. rooted is the same
+// resource and id directly under the scope ("…/campaigns/2/actions/3" →
+// "…/actions/{action_id}"); parent is the nearest GET above the path that
+// exists ("…/campaigns/{campaign_id}"). Both are GET routes: a nested write
+// acts on a relation, and the rooted write would act on the whole resource.
+// Either is nil when the index has no such route.
+func (idx *PathIndex) NestedAlternatives(path string) (rooted, parent *Suggestion) {
+	segs := splitPathSegments(path)
+	scopeLen := idx.scopeLen(segs)
+	// Scope, resource, id, and at least one segment nested under them.
+	if scopeLen == 0 || len(segs) < scopeLen+3 {
+		return nil, nil
+	}
+	scope := segs[:scopeLen]
+
+	// A rooted route must keep at least a resource and an id: a bare list
+	// under the scope ("…/attributes") is usually a different thing.
+	for start := scopeLen + 1; len(segs)-start >= 2; start++ {
+		candidate := "/" + strings.Join(append(append([]string{}, scope...), segs[start:]...), "/")
+		if tmpl, ok := idx.Lookup("GET", candidate); ok {
+			s := newSuggestion("GET", tmpl)
+			rooted = &s
+			break
+		}
+	}
+
+	// Only an item read is a parent: a list holds the id, not what nests under it.
+	for end := len(segs) - 1; end > scopeLen; end-- {
+		tmpl, ok := idx.Lookup("GET", "/"+strings.Join(segs[:end], "/"))
+		if !ok {
+			continue
+		}
+		if tmplSegs := splitPathSegments(tmpl); isPlaceholderSegment(tmplSegs[len(tmplSegs)-1]) {
+			s := newSuggestion("GET", tmpl)
+			parent = &s
+		}
+		break
+	}
+	return rooted, parent
+}
+
+// scopeLen is how many leading segments of the path form its scope
+// ("/v1/environments/{environment_id}" is three, "/cdp/api/workspaces/{workspace_id}"
+// four): up to and including the first placeholder of a route covering the path.
+func (idx *PathIndex) scopeLen(segs []string) int {
+	for i := range idx.entries {
+		e := &idx.entries[i]
+		if sharedLeadingSegments(e.segments, segs) < CoverageDepth {
+			continue
+		}
+		for j, seg := range e.segments {
+			if isPlaceholderSegment(seg) {
+				return j + 1
+			}
+		}
+	}
+	return 0
+}
+
+func newSuggestion(httpMethod, path string) Suggestion {
+	resource, _ := deriveFromWalkedPath(path, httpMethod)
+	return Suggestion{HTTPMethod: httpMethod, Path: path, Resource: resource}
 }
 
 func splitPathSegments(p string) []string {
