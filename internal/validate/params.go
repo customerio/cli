@@ -20,6 +20,8 @@ var validParamKeyRe = regexp.MustCompile(`^[a-zA-Z0-9_]+(\[\])?$`)
 // shape, not just the parser's complaint.
 const paramsUsageHint = `--params expects a JSON object, e.g. --params '{"email":"a@b.com"}' (query-string form 'email=a@b.com' is also accepted)`
 
+const literalAmpersandHint = "encode a literal & as %26"
+
 // MaxParamValueLength caps the length of a single query param value to
 // bound request size and reject obviously abusive inputs. API query
 // params are typically short (IDs, filters, search terms).
@@ -38,7 +40,7 @@ func ValidateParams(raw string) (map[string]string, error) {
 			hint := paramsUsageHint
 			// A segment without '=' is usually an unencoded separator, not JSON.
 			if strings.Contains(raw, "=") && strings.Contains(raw, "&") {
-				hint = "in the query-string form, encode a literal & as %26. " + hint
+				hint = "in the query-string form, " + literalAmpersandHint + ". " + hint
 			}
 			return nil, &ParamsValidationError{
 				Reason: fmt.Sprintf("params is not valid JSON: %s. %s", err.Error(), hint),
@@ -88,6 +90,19 @@ func duplicateKeyError(key string) error {
 	return &ParamsValidationError{
 		Reason: fmt.Sprintf("param key %q appears more than once; --params carries a single value per key, so multi-value filters cannot be sent", key),
 	}
+}
+
+// ValidateInlineQuery checks a query string written into a request path. Unlike
+// --params it is never JSON; its pairs are validated later with the --params values.
+func ValidateInlineQuery(raw string) error {
+	if raw == "" || looksLikeQueryString(raw) {
+		return nil
+	}
+	reason := "the query string in the path must be key=value pairs joined by &"
+	if strings.Contains(raw, "=") && strings.Contains(raw, "&") {
+		reason += "; " + literalAmpersandHint + " in a value"
+	}
+	return &ParamsValidationError{Reason: reason}
 }
 
 // looksLikeQueryString reports whether the input is unambiguously URL-query

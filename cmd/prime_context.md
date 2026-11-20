@@ -78,6 +78,7 @@ cio api <path> [--method/-X METHOD] [--params '{}'] [--json '{}'] [flags]
 
 - Path is a literal API path: `/v1/environments/{environment_id}/campaigns`
 - `{placeholder}` values are substituted from `--params`
+- Pass an ID taken from data as a `{placeholder}` value in `--params`. Pasted into the path, a `?` in the ID would start the query
 - Method defaults to GET (or POST if `--json` is provided); override with `-X`
 - Query params go in `--params` alongside path params
 
@@ -115,6 +116,7 @@ cio skills                              # list available skills
 cio skills read fly-api                 # Customer.io API guidance — routes to sub-files
 cio skills read fly-api/campaigns.md    # campaign workflows, edge wiring, gotchas
 cio skills read cio                     # skills unique to the CLI (onboarding, auth/login, integration)
+cio skills read mobile-sdk              # mobile SDK setup, push, and troubleshooting (iOS, Android, React Native, Expo, Flutter)
 cio skills read design-studio           # Design Studio email creation workflow
 cio skills read design-studio/nodes.md  # node creation, component markup
 ```
@@ -127,6 +129,7 @@ cio skills read design-studio/nodes.md  # node creation, component markup
 | What params/body does campaigns.create take? | `cio schema campaigns.create` |
 | How do I wire campaign actions + edges? | `cio skills read fly-api/campaigns.md` |
 | How do I create a Design Studio email? | `cio skills read design-studio/nodes.md` |
+| How do I add Customer.io or push to my mobile app? | `cio skills read mobile-sdk` |
 | What's the multi-step campaign creation flow? | `cio skills read fly-api/campaigns.md` |
 
 ## Global Flags
@@ -236,6 +239,12 @@ unknown path is answered by the web app with its HTML page and a 200, so forcing
 a guessed path returns no data. Reserve the flag for the few real endpoints the
 spec omits, where you already know the path; otherwise run `cio schema
 <resource>` and use a documented endpoint.
+
+### Sends that cost money
+
+Before you send or schedule a newsletter, start or schedule a campaign, trigger a broadcast, or activate a transactional message, check what it costs: `cio api /v1/environments/{environment_id}/send_cost --params '{"environment_id":"<env>","type":"newsletter","id":"<id>"}'`. `type` is `newsletter`, `campaign`, `api_triggered_broadcast` or `transactional`; for a campaign start, pass `backfill` in the same `--params`, with the same value the start sends. When the response has `is_flex: true` and `metered: true`, tell the user the cost and ask before you send; otherwise go ahead. When `audience_known` is false, the cost covers only one person, so say that the full send will cost more. Include the wallet balance when `balance_visible` is true. When it's false, the balance is hidden from you or couldn't be read, so `balance_cents` and `shortfall_cents` read 0 whatever the wallet holds: don't quote them, and if `wallet_covers` is false, say the wallet can't cover the send. The balance and `wallet_covers` change only what you tell the user, never whether you ask.
+
+A 402 with code `insufficient_funds` means the wallet can't pay: tell the user the cost, the shortfall when the response has it, and the `add_funds_url`, and don't look for another way to send.
 
 ## Retry Behavior
 

@@ -261,3 +261,83 @@ func TestPathIndexAddRejectsUnparseableSpec(t *testing.T) {
 		t.Error("expected an error for a document that is neither OpenAPI nor walked routes")
 	}
 }
+
+// Routes copied from the published Journeys spec, so the guesses below are
+// judged against the real neighbourhood an agent lands in.
+func realNestedIndex(t *testing.T) *PathIndex {
+	t.Helper()
+	return indexFixture(t,
+		"GET /v1/environments/{environment_id}/campaigns/{campaign_id}",
+		"GET /v1/environments/{environment_id}/campaigns/{campaign_id}/lift",
+		"GET /v1/environments/{environment_id}/campaigns/{campaign_id}/notes",
+		"GET /v1/environments/{environment_id}/actions/{action_id}",
+		"GET /v1/environments/{environment_id}/actions/{action_id}/metrics",
+		"GET /v1/environments/{environment_id}/attributes",
+		"GET /v1/environments/{environment_id}/attributes/{attribute}",
+		"GET /v1/environments/{environment_id}/customers",
+		"GET /v1/environments/{environment_id}/customers/{customer_id}",
+		"GET /v1/environments/{environment_id}/customers/{customer_id}/segments",
+		"GET /v1/environments/{environment_id}/deliveries",
+		"GET /v1/environments/{environment_id}/deliveries/{id}",
+		"GET /v1/environments/{environment_id}/segments/{segment_id}",
+		"GET /v1/environments/{environment_id}/segments/{segment_id}/count",
+		"GET /v1/environments/{environment_id}/layouts",
+		"GET /cdp/api/workspaces/{workspace_id}/sources",
+		"GET /cdp/api/workspaces/{workspace_id}/sources/{source_id}",
+		"GET /cdp/api/workspaces/{workspace_id}/destinations",
+		"GET /cdp/api/workspaces/{workspace_id}/destinations/{destination_id}",
+	)
+}
+
+func TestPathIndexNestedAlternatives(t *testing.T) {
+	idx := realNestedIndex(t)
+	const env = "/v1/environments/{environment_id}"
+	const cdp = "/cdp/api/workspaces/{workspace_id}"
+
+	for _, tc := range []struct {
+		path, rooted, parent string
+	}{
+		{"/v1/environments/1/campaigns/2/actions/3", "GET " + env + "/actions/{action_id}", "GET " + env + "/campaigns/{campaign_id}"},
+		{"/v1/environments/1/campaigns/2/actions", "", "GET " + env + "/campaigns/{campaign_id}"},
+		// A bare list under the scope is a different thing (attribute
+		// definitions, every delivery), so only the parent is offered.
+		{"/v1/environments/1/customers/7/attributes", "", "GET " + env + "/customers/{customer_id}"},
+		{"/v1/environments/1/customers/7/activities", "", "GET " + env + "/customers/{customer_id}"},
+		{"/v1/environments/1/customers/7/deliveries", "", "GET " + env + "/customers/{customer_id}"},
+		{"/v1/environments/1/customers/7/deliveries/9", "GET " + env + "/deliveries/{id}", "GET " + env + "/customers/{customer_id}"},
+		{"/v1/environments/1/segments/4/customers", "", "GET " + env + "/segments/{segment_id}"},
+		// The CDP scope is four segments, so a nested id must not be taken
+		// for the workspace id.
+		{"/cdp/api/workspaces/12/sources/5/destinations", "", "GET " + cdp + "/sources/{source_id}"},
+		{"/cdp/api/workspaces/12/sources/5/destinations/7", "GET " + cdp + "/destinations/{destination_id}", "GET " + cdp + "/sources/{source_id}"},
+		// Only an item read is a parent: a list one level up holds the id,
+		// not the thing nested under it.
+		{"/v1/environments/1/attributes/plan/history", "", "GET " + env + "/attributes/{attribute}"},
+		{"/v1/environments/1/deliveries/9/opens/2", "", "GET " + env + "/deliveries/{id}"},
+	} {
+		rooted, parent := idx.NestedAlternatives(tc.path)
+		if got := suggestionString(rooted); got != tc.rooted {
+			t.Errorf("%s: rooted = %q, want %q", tc.path, got, tc.rooted)
+		}
+		if got := suggestionString(parent); got != tc.parent {
+			t.Errorf("%s: parent = %q, want %q", tc.path, got, tc.parent)
+		}
+	}
+
+	// Not nested: an unknown resource directly under the scope has no parent
+	// worth naming.
+	if rooted, parent := idx.NestedAlternatives("/v1/environments/1/attribute_names"); rooted != nil || parent != nil {
+		t.Errorf("expected no alternatives for a top-level miss, got %v %v", rooted, parent)
+	}
+	// No item read above the miss: the only GET ancestor is a list.
+	if _, parent := idx.NestedAlternatives("/v1/environments/1/layouts/3/actions"); parent != nil {
+		t.Errorf("expected no list offered as a parent, got %v", parent)
+	}
+}
+
+func suggestionString(s *Suggestion) string {
+	if s == nil {
+		return ""
+	}
+	return s.String()
+}

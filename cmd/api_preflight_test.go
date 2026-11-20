@@ -35,6 +35,10 @@ func preflightSpec() string {
 			},
 			"/v1/environments/{environment_id}/campaigns/{campaign_id}/duplicate": {
 				"post": {"summary": "Duplicate campaign"}
+			},
+			"/v1/environments/{environment_id}/actions/{action_id}": {
+				"get": {"summary": "Get action"},
+				"delete": {"summary": "Delete action"}
 			}
 		}
 	}`
@@ -149,6 +153,66 @@ func TestAPIPreflight_BlocksUnknownSubPathWithoutSending(t *testing.T) {
 	// learns "that failed" tries a variant instead of reading the schema.
 	if !strings.Contains(err.Error(), "cio schema campaigns") {
 		t.Errorf("error should point at the resource's schema, got: %s", err.Error())
+	}
+	if got := server.requested(); len(got) != 0 {
+		t.Errorf("no API request should have been made, got %v", got)
+	}
+}
+
+// A nested guess is usually a resource that lives at its own route, or one the
+// parent read already returns, so the error has to name both: the siblings
+// Suggest ranks first never include them.
+func TestAPIPreflight_NamesTheRealRouteForANestedGuess(t *testing.T) {
+	server := setupPreflightTest(t)
+
+	var err error
+	stderr := captureStderr(t, func() {
+		_, _, err = executeCommand("api", "/v1/environments/456/campaigns/48/actions/12",
+			"--api-url", server.URL)
+	})
+	if err == nil {
+		t.Fatal("expected a nested guess to be rejected before sending")
+	}
+	for _, want := range []string{
+		"try GET /v1/environments/{environment_id}/actions/{action_id}",
+		"the parent GET /v1/environments/{environment_id}/campaigns/{campaign_id}, which may already include actions",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error should contain %q, got: %s", want, err.Error())
+		}
+	}
+
+	var payload struct {
+		Details struct {
+			Closest []string `json:"closest_endpoints"`
+		} `json:"details"`
+	}
+	if jsonErr := json.Unmarshal([]byte(stderr), &payload); jsonErr != nil {
+		t.Fatalf("stderr should be a JSON error: %v\n%s", jsonErr, stderr)
+	}
+	closest := payload.Details.Closest
+	if len(closest) < 2 ||
+		closest[0] != "GET /v1/environments/{environment_id}/actions/{action_id}" ||
+		closest[1] != "GET /v1/environments/{environment_id}/campaigns/{campaign_id}" {
+		t.Errorf("closest_endpoints should lead with the real route and the parent, got %v", closest)
+	}
+	if got := server.requested(); len(got) != 0 {
+		t.Errorf("no API request should have been made, got %v", got)
+	}
+}
+
+// A nested write acts on a relation; pointing it at the rooted route would
+// act on the whole resource instead.
+func TestAPIPreflight_NeverOffersARootedWriteForANestedWrite(t *testing.T) {
+	server := setupPreflightTest(t)
+
+	_, _, err := executeCommand("api", "/v1/environments/456/campaigns/48/actions/12",
+		"-X", "DELETE", "--api-url", server.URL)
+	if err == nil {
+		t.Fatal("expected a nested write guess to be rejected before sending")
+	}
+	if strings.Contains(err.Error(), "try ") {
+		t.Errorf("a write must not be steered to another route, got: %s", err.Error())
 	}
 	if got := server.requested(); len(got) != 0 {
 		t.Errorf("no API request should have been made, got %v", got)
