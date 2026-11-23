@@ -270,6 +270,7 @@ cio api /v1/environments/{environment_id}/campaigns \
 | `--dry-run` | | Validate + print request, skip execution |
 | `--api-url <url>` | | API base URL override |
 | `--timeout <duration>` | `CIO_TIMEOUT` | HTTP request timeout (default: 30s) |
+| | `CIO_RUN_REPORT` | Write a JSON summary of the run to this file |
 | `--page <n>` | | Page number |
 | `--limit <n>` | | Page size |
 | `--page-all` | | Auto-paginate, emit NDJSON |
@@ -286,6 +287,25 @@ caller deadline stops retries. Repeated timeouts can therefore take longer than
 `--timeout` overall. If `--page-all` exhausts its retries, it exits with an error
 and leaves any earlier pages in stdout; callers must check its exit status before
 using the output as a complete result.
+
+## Run Report
+
+Set `CIO_RUN_REPORT` to a file path and each run writes one JSON object there as it exits, for tools
+that run `cio` and log what happened. It never holds a value you passed (paths, parameters, bodies,
+jq expressions) or error text.
+
+| Field | Meaning |
+|---|---|
+| `version` | CLI version |
+| `command` | Command path below `cio`, such as `api` or `send email`; empty when the command was not recognized |
+| `exit_code` | Process exit code |
+| `error_code` | The command's structured error code (`VALIDATION_ERROR`, `API_ERROR`, ...); null on success |
+| `reason` | Why the run failed, null on success: `not_in_spec`, `wrong_method`, `missing_path_param`, `invalid_params`, `invalid_json`, `jq_error`, `unknown_flag`, `arg_count`, `unknown_command`, `schema_not_found`, `http_error`, `auth`, `network` or `other` |
+| `method` | HTTP method of the last request, or null |
+| `route` | Spec path template of the last request, such as `/v1/environments/{environment_id}/campaigns`, or null |
+| `route_match` | `matched`, `not_in_spec` (also when the path exists only for another method) or `not_checked` |
+| `requests` | API requests and skills downloads sent, counting retries and `--page-all` pages; token exchanges, spec downloads and the CLI's own housekeeping calls are left out |
+| `status` | HTTP status of the last request, or null when it got no response |
 
 ## Exit Codes
 

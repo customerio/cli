@@ -49,10 +49,11 @@ func preflightSpec() string {
 // the CLI, spec paths so a test can assert the check itself fetches nothing.
 type preflightServer struct {
 	*httptest.Server
-	mu        sync.Mutex
-	spec      string
-	apiPaths  []string
-	specPaths []string
+	mu          sync.Mutex
+	spec        string
+	tokenStatus int
+	apiPaths    []string
+	specPaths   []string
 }
 
 // setSpec changes the published Journeys spec, as a deploy would.
@@ -84,6 +85,10 @@ func (p *preflightServer) forget() {
 // newPreflightServer starts the server without priming the spec cache, for
 // tests that care about a cold cache.
 func newPreflightServer(t *testing.T) *preflightServer {
+	return newPreflightServerWithAPI(t, nil)
+}
+
+func newPreflightServerWithAPI(t *testing.T, api http.HandlerFunc) *preflightServer {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CIO_TOKEN", "sa_live_test123")
@@ -93,6 +98,13 @@ func newPreflightServer(t *testing.T) *preflightServer {
 	p.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/service_accounts/oauth/token":
+			p.mu.Lock()
+			status := p.tokenStatus
+			p.mu.Unlock()
+			if status != 0 {
+				w.WriteHeader(status)
+				return
+			}
 			_, _ = w.Write([]byte(`{"access_token":"jwt-test-session","token_type":"Bearer","expires_in":3600}`))
 			return
 		case "/v1/openapi.json", "/cdp/api/openapi.json":
@@ -117,6 +129,10 @@ func newPreflightServer(t *testing.T) *preflightServer {
 		p.mu.Lock()
 		p.apiPaths = append(p.apiPaths, r.URL.Path)
 		p.mu.Unlock()
+		if api != nil {
+			api(w, r)
+			return
+		}
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	t.Cleanup(p.Close)

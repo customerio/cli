@@ -68,7 +68,7 @@ func DoTrack(ctx context.Context, req TrackRequest) (json.RawMessage, error) {
 	const maxResponseSize = 10 << 20 // 10 MB
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
-		return nil, fmt.Errorf("read response: %w: %w", errResponseLost, err)
+		return nil, responseReadError(err, resp.StatusCode)
 	}
 
 	if resp.StatusCode >= http.StatusBadRequest {

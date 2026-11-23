@@ -7,6 +7,7 @@ import (
 
 	"github.com/customerio/cli/internal/output"
 	"github.com/customerio/cli/internal/routes"
+	"github.com/customerio/cli/internal/runreport"
 	"github.com/spf13/cobra"
 )
 
@@ -165,6 +166,7 @@ func schemaForResource(cmd *cobra.Command, reg *routes.Registry, resource string
 	rs, ok := reg.ByResource[resource]
 	if !ok {
 		err := fmt.Errorf("unknown resource: %s", resource)
+		runreport.Reason("schema_not_found")
 		output.PrintError(output.CodeValidationError, err.Error(), map[string]any{
 			"resource":            resource,
 			"available_resources": reg.Resources(),
@@ -183,6 +185,7 @@ func schemaForResource(cmd *cobra.Command, reg *routes.Registry, resource string
 func schemaForResourceMethod(cmd *cobra.Command, reg *routes.Registry, resource, method string, compact bool) error {
 	route := reg.FindRoute(resource, method)
 	if route == nil {
+		runreport.Reason("schema_not_found")
 		suggestions := suggestRoutes(reg, resource, method)
 		msg := fmt.Sprintf("unknown method: %s.%s", resource, method)
 		if len(suggestions) > 0 {
@@ -209,6 +212,7 @@ func schemaForPath(cmd *cobra.Command, reg *routes.Registry, path string, compac
 
 	if len(matches) == 0 {
 		err := fmt.Errorf("no endpoints found for path: %s", path)
+		runreport.Reason("schema_not_found")
 		output.PrintError(output.CodeValidationError, err.Error(), nil)
 		return err
 	}
@@ -229,6 +233,7 @@ func schemaForHTTPEndpoint(cmd *cobra.Command, reg *routes.Registry, method, pat
 	}
 
 	err := fmt.Errorf("unknown endpoint: %s %s", method, path)
+	runreport.Reason("schema_not_found")
 	output.PrintError(output.CodeValidationError, err.Error(), nil)
 	return err
 }

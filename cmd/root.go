@@ -11,6 +11,7 @@ import (
 
 	"github.com/customerio/cli/internal/client"
 	"github.com/customerio/cli/internal/output"
+	"github.com/customerio/cli/internal/runreport"
 	"github.com/customerio/cli/internal/tui"
 	"github.com/customerio/cli/internal/useragent"
 	"github.com/customerio/cli/internal/validate"
@@ -92,7 +93,7 @@ func init() {
 		// send a request. CommandPath is built from command names alone, so
 		// arguments and flag values stay out of the header. Dropping the root
 		// name leaves bare `cio` with an empty command.
-		client.SetCommand(strings.TrimPrefix(cmd.CommandPath(), cmd.Root().Name()))
+		client.SetCommand(commandPathBelowRoot(cmd))
 
 		maybeHintSkillsInstall(cmd)
 
@@ -107,6 +108,8 @@ func init() {
 			}
 			client.SetActiveProfile(profile)
 		}
+
+		reportBespokeRoutes(cmd)
 
 		// Bind environment variables as fallback defaults.
 		if !cmd.Flags().Changed("timeout") {
@@ -147,11 +150,13 @@ func init() {
 			argjsonVals, _ := cmd.Flags().GetStringArray("argjson")
 			argVals, err = resolveArgFileRefs("arg", argVals)
 			if err != nil {
+				runreport.Reason("invalid_json")
 				output.PrintError(output.CodeValidationError, err.Error(), map[string]string{"flag": "--arg"})
 				return err
 			}
 			argjsonVals, err = resolveArgFileRefs("argjson", argjsonVals)
 			if err != nil {
+				runreport.Reason("invalid_json")
 				output.PrintError(output.CodeValidationError, err.Error(), map[string]string{"flag": "--argjson"})
 				return err
 			}
@@ -159,6 +164,7 @@ func init() {
 			if len(argVals) > 0 || len(argjsonVals) > 0 {
 				built, buildErr := output.BuildJSON(resolved, argVals, argjsonVals)
 				if buildErr != nil {
+					runreport.Reason("invalid_json")
 					output.PrintError(output.CodeValidationError, buildErr.Error(), map[string]string{
 						"flag": "--json",
 					})
@@ -172,7 +178,7 @@ func init() {
 			if _, err := validate.ValidateJSONPayload(resolved); err != nil {
 				valErr := err
 				if strings.HasPrefix(jsonFlag, "@") {
-					valErr = fmt.Errorf("%s (from file %s)", err.Error(), jsonFlag[1:])
+					valErr = fmt.Errorf("%w (from file %s)", err, jsonFlag[1:])
 				}
 				output.PrintError(output.CodeValidationError, valErr.Error(), map[string]string{
 					"flag": "--json",
@@ -371,8 +377,27 @@ func resolveArgFileRefs(flag string, bindings []string) ([]string, error) {
 
 // Execute runs the root command.
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		exitCode := output.PrintError(output.CodeGeneralError, err.Error(), nil)
+	reportPath := os.Getenv("CIO_RUN_REPORT")
+	if reportPath != "" {
+		runreport.Start(reportPath, useragent.Version())
+		// Include the validators Cobra registers for shell completion.
+		rootCmd.InitDefaultCompletionCmd()
+		reportArgCounts(rootCmd)
+	}
+
+	cmd, err := rootCmd.ExecuteC()
+	exitCode := 0
+	if err != nil {
+		exitCode = output.PrintedExitCode()
+		if exitCode == 0 {
+			exitCode = output.PrintError(output.CodeGeneralError, err.Error(), nil)
+		}
+	}
+	if reportPath != "" {
+		reportCommandFailure(cmd, err)
+		runreport.Finish(commandPathBelowRoot(cmd), exitCode)
+	}
+	if exitCode != 0 {
 		os.Exit(exitCode)
 	}
 }

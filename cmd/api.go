@@ -13,6 +13,7 @@ import (
 	"github.com/customerio/cli/internal/client"
 	"github.com/customerio/cli/internal/output"
 	"github.com/customerio/cli/internal/routes"
+	"github.com/customerio/cli/internal/runreport"
 	"github.com/customerio/cli/internal/validate"
 	"github.com/spf13/cobra"
 )
@@ -79,6 +80,7 @@ func runAPI(cmd *cobra.Command, args []string) error {
 	// A {placeholder} is only filled in the path; after the ? it would go out as the literal text.
 	if pathParamRegex.MatchString(inlineQuery) {
 		err := fmt.Errorf("the query string in the path has a {placeholder}, which is only filled in the path: write the value itself, or pass it with --params")
+		runreport.Reason("invalid_params")
 		output.PrintError(output.CodeValidationError, err.Error(), nil)
 		return err
 	}
@@ -101,6 +103,7 @@ func runAPI(cmd *cobra.Command, args []string) error {
 	}
 
 	httpMethod := resolveMethod(methodFlag, jsonBody != nil || len(fileParts) > 0)
+	runreport.Method(httpMethod)
 
 	// Parse --params: separate path params from query params.
 	paramsRaw, _ := cmd.Flags().GetStringArray("params")
@@ -291,13 +294,18 @@ func preflightPath(cmd *cobra.Command, c *client.Client, httpMethod, resolvedPat
 		}
 	}
 
-	if pathAllowed(idx, httpMethod, resolvedPath) {
+	if template, matched := idx.Lookup(httpMethod, resolvedPath); matched {
+		runreport.MatchedRoute(template)
+		return nil
+	}
+	if !idx.Covers(resolvedPath) {
 		return nil
 	}
 
 	// The shape exists but not for this verb — a different mistake, and one
 	// the caller fixes by changing -X rather than the path.
 	if allowed := idx.MethodsFor(resolvedPath); len(allowed) > 0 {
+		runreport.RejectRoute("wrong_method")
 		// Name the fix, not just the verb: the method is usually implicit here
 		// (GET unless a body was passed), so the caller needs to be told to
 		// set it rather than left to infer that from the list.
@@ -372,6 +380,7 @@ func preflightPath(cmd *cobra.Command, c *client.Client, httpMethod, resolvedPat
 	err = fmt.Errorf(
 		"%s %s is not an endpoint in the API spec, so the request was not sent; %s",
 		httpMethod, resolvedPath, hint)
+	runreport.RejectRoute("not_in_spec")
 	output.PrintError(output.CodeValidationError, err.Error(), map[string]any{
 		"method":            httpMethod,
 		"path":              resolvedPath,
@@ -487,6 +496,7 @@ func resolvePathTemplate(pathTemplate string, pathParams map[string]string) (str
 
 	// Check for unresolved placeholders.
 	if matches := pathParamRegex.FindAllStringSubmatch(path, -1); len(matches) > 0 {
+		runreport.Reason("missing_path_param")
 		var missing []string
 		for _, m := range matches {
 			missing = append(missing, m[1])

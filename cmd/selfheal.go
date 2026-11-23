@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/customerio/cli/internal/client"
+	"github.com/customerio/cli/internal/runreport"
 )
 
 // sandboxPromoteThrottle bounds how often the CLI probes the promote endpoint
@@ -32,6 +33,7 @@ func maybePromoteSandboxToken(ctx context.Context, c *client.Client, saToken str
 	if readOnly || os.Getenv("CIO_TOKEN") != "" || !client.IsSandboxServiceAccountToken(saToken) {
 		return
 	}
+	ctx = runreport.Untracked(ctx)
 
 	creds, err := client.ReadCredentials()
 	if err != nil {

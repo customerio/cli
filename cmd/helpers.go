@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/customerio/cli/internal/client"
 	"github.com/customerio/cli/internal/output"
 	"github.com/customerio/cli/internal/routes"
+	"github.com/customerio/cli/internal/runreport"
 	"github.com/spf13/cobra"
 )
 
@@ -69,19 +71,24 @@ func specLoadOptions(ctx context.Context, c *client.Client) routes.LoadRegistryO
 // lookup should cost. The key matches the one specLoadOptions uses, so both
 // commands read and write the same directory.
 func specCacheOptions(c *client.Client) routes.LoadRegistryOptions {
-	var opts routes.LoadRegistryOptions
 	if c == nil {
-		return opts
+		return routes.LoadRegistryOptions{}
 	}
 
-	opts.BaseURL = c.BaseURL()
-	switch {
-	case c.ServiceAccountToken() != "":
-		opts.CacheKey = c.ServiceAccountToken()
-	case c.AccessToken() != "":
-		opts.CacheKey = specCacheKey(c.AccessToken())
+	return routes.LoadRegistryOptions{
+		BaseURL:  c.BaseURL(),
+		CacheKey: specCacheIdentity(c.ServiceAccountToken(), c.AccessToken()),
 	}
-	return opts
+}
+
+func specCacheIdentity(serviceAccountToken, accessToken string) string {
+	if serviceAccountToken != "" {
+		return serviceAccountToken
+	}
+	if accessToken != "" {
+		return specCacheKey(accessToken)
+	}
+	return ""
 }
 
 // doPageAll runs auto-pagination and writes NDJSON to stdout.
@@ -94,9 +101,10 @@ func doPageAll(cmd *cobra.Command, c *client.Client, path string, params map[str
 		w = &filterWriter{w: cmd.OutOrStdout(), jq: jq, raw: raw}
 	}
 
+	runreport.Method(http.MethodGet)
 	err := c.PageAll(client.PageAllConfig{
 		Ctx:       cmd.Context(),
-		Method:    "GET",
+		Method:    http.MethodGet,
 		Path:      path,
 		Params:    params,
 		Limit:     limit,
@@ -154,9 +162,16 @@ func handleAPIError(err error) error {
 			"status_code": apiErr.StatusCode,
 		})
 	case http.StatusForbidden:
-		output.PrintError(output.CodeAuthzError, "Insufficient permissions.", map[string]any{
-			"status_code": apiErr.StatusCode,
-		})
+		code, detail := apiErrorDetail(apiErr.Body)
+		msg := "Insufficient permissions."
+		if detail != "" && !strings.EqualFold(detail, "forbidden") {
+			msg = detail
+		}
+		details := map[string]any{"status_code": apiErr.StatusCode}
+		if code != "" {
+			details["api_code"] = code
+		}
+		output.PrintError(output.CodeAuthzError, msg, details)
 	default:
 		output.PrintError(output.CodeAPIError, apiErr.Error(), map[string]any{
 			"status_code": apiErr.StatusCode,

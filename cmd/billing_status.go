@@ -327,7 +327,7 @@ func handleBillingStatusError(err error) error {
 			})
 			return errors.New(msg)
 		case http.StatusBadRequest:
-			if detail := apiErrorDetail(apiErr.Body); detail != "" {
+			if _, detail := apiErrorDetail(apiErr.Body); detail != "" {
 				output.PrintError(output.CodeValidationError, detail, map[string]any{
 					"status_code": apiErr.StatusCode,
 				})

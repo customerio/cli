@@ -21,6 +21,12 @@ import (
 
 // Keep tests independent of the developer's credential environment.
 func TestMain(m *testing.M) {
+	if len(os.Args) > 1 && os.Args[1] == "test-run-report" {
+		rootCmd.SetArgs(os.Args[2:])
+		SetVersion("0.0.39")
+		Execute()
+		return
+	}
 	_ = os.Unsetenv("CIO_CONFIG")
 	_ = os.Unsetenv("CIO_TOKEN")
 	os.Exit(m.Run())

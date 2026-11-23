@@ -10,6 +10,7 @@ import (
 
 	"github.com/customerio/cli/internal/client"
 	"github.com/customerio/cli/internal/output"
+	"github.com/customerio/cli/internal/runreport"
 	"github.com/spf13/cobra"
 )
 
@@ -163,13 +164,10 @@ func printAddFundsResult(cmd *cobra.Command, result map[string]any) error {
 	return output.FprintProcess(cmd.OutOrStdout(), json.RawMessage(data), GetJQFlag(cmd), GetRawFlag(cmd))
 }
 
-// handleAddFundsError passes on the server's reason for refusing a link, which
-// says what plan and permission adding funds needs, where handleAPIError
-// would reduce a 403 to "Insufficient permissions."
 func handleAddFundsError(err error) error {
 	var apiErr *client.APIError
 	if errors.As(err, &apiErr) && (apiErr.StatusCode == http.StatusBadRequest || apiErr.StatusCode == http.StatusForbidden) {
-		if detail := apiErrorDetail(apiErr.Body); detail != "" {
+		if _, detail := apiErrorDetail(apiErr.Body); detail != "" {
 			code := output.CodeValidationError
 			if apiErr.StatusCode == http.StatusForbidden {
 				code = output.CodeAuthzError
@@ -177,21 +175,22 @@ func handleAddFundsError(err error) error {
 			output.PrintError(code, detail, map[string]any{
 				"status_code": apiErr.StatusCode,
 			})
-			return errors.New(detail)
+			return runreport.WithReason(errors.New(detail), "http_error")
 		}
 	}
 	return handleAPIError(err)
 }
 
-// apiErrorDetail reads the first message from an {"errors":[{"detail":...}]} body.
-func apiErrorDetail(body []byte) string {
+func apiErrorDetail(body []byte) (code, detail string) {
 	var parsed struct {
 		Errors []struct {
-			Detail string `json:"detail"`
+			Code   json.RawMessage `json:"code"`
+			Detail string          `json:"detail"`
 		} `json:"errors"`
 	}
 	if json.Unmarshal(body, &parsed) != nil || len(parsed.Errors) == 0 {
-		return ""
+		return "", ""
 	}
-	return strings.TrimSpace(parsed.Errors[0].Detail)
+	_ = json.Unmarshal(parsed.Errors[0].Code, &code)
+	return strings.TrimSpace(code), strings.TrimSpace(parsed.Errors[0].Detail)
 }

@@ -117,6 +117,21 @@ func TestPathIndexMethodsForDistinguishesWrongVerb(t *testing.T) {
 	}
 }
 
+func TestPathIndexLookupPrefersLiteralSegments(t *testing.T) {
+	const literal, param = "/v1/environments/{environment_id}/metrics/all_deliveries", "/v1/environments/{environment_id}/metrics/{name}"
+	for _, idx := range []*PathIndex{
+		indexFixture(t, "GET "+literal, "GET "+param),
+		indexFixture(t, "GET "+param, "GET "+literal),
+	} {
+		if got, _ := idx.Lookup("GET", "/v1/environments/456/metrics/all_deliveries"); got != literal {
+			t.Errorf("Lookup = %q, want %q", got, literal)
+		}
+		if got, _ := idx.Lookup("GET", "/v1/environments/456/metrics/opens"); got != param {
+			t.Errorf("Lookup = %q, want %q", got, param)
+		}
+	}
+}
+
 func TestPathIndexLookupIsMethodCaseInsensitive(t *testing.T) {
 	idx := campaignsIndex(t)
 

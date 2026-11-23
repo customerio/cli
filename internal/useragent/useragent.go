@@ -13,6 +13,9 @@ func SetVersion(v string) {
 	version = v
 }
 
+// Version returns the CLI version used in outgoing requests.
+func Version() string { return version }
+
 // Get returns the User-Agent value used for outgoing CLI requests.
 func Get() string {
 	return productName + "/" + version + " (+" + repositoryURL + ")"
