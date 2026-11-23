@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/customerio/cli/internal/runreport"
 	"github.com/customerio/cli/internal/useragent"
 )
 
@@ -200,7 +202,7 @@ func (c *Client) EnsureAccessToken(ctx context.Context) (string, error) {
 	c.accessTokenExpiresAt = time.Time{}
 
 	if c.serviceAccountToken == "" {
-		return "", fmt.Errorf("no service account token configured")
+		return "", runreport.WithReason(fmt.Errorf("no service account token configured"), "auth")
 	}
 
 	// Check the file cache.
@@ -214,7 +216,7 @@ func (c *Client) EnsureAccessToken(ctx context.Context) (string, error) {
 	// Exchange sa_live_ credential for a JWT.
 	token, expiresIn, err := c.exchangeToken(ctx)
 	if err != nil {
-		return "", fmt.Errorf("%w: %w", errTokenExchange, err)
+		return "", runreport.WithReason(fmt.Errorf("%w: %w", errTokenExchange, err), exchangeFailureReason(err))
 	}
 
 	c.accessToken = token
@@ -283,7 +285,7 @@ func exchangeTokenAt(ctx context.Context, httpClient *http.Client, baseURL, saTo
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", 0, fmt.Errorf("read token response: %w", err)
+		return "", 0, runreport.WithReason(fmt.Errorf("read token response: %w", err), "network")
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -369,7 +371,7 @@ func DiscoverRegion(ctx context.Context, saToken string, tokenBaseURL string) (*
 
 	accessToken, expiresIn, err := exchangeTokenAt(ctx, httpClient, exchangeURL, saToken, false, nil)
 	if err != nil {
-		return nil, fmt.Errorf("token exchange failed: %w", err)
+		return nil, runreport.WithReason(fmt.Errorf("token exchange failed: %w", err), exchangeFailureReason(err))
 	}
 
 	// Now discover the account's data center and ID via GET /v1/accounts/current.
@@ -406,19 +408,19 @@ func fetchAccountInfo(ctx context.Context, httpClient *http.Client, baseURL, acc
 	req.Header.Set("Accept", "application/json")
 	setStandardHeaders(req)
 
-	resp, err := httpClient.Do(req)
+	resp, err := runreport.Do(httpClient, req)
 	if err != nil {
 		return "", "", err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("GET /v1/accounts/current returned %d", resp.StatusCode)
+		return "", "", runreport.WithHTTPStatus(fmt.Errorf("GET /v1/accounts/current returned %d", resp.StatusCode), resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", "", err
+		return "", "", runreport.ReadFailure(err, resp.StatusCode)
 	}
 
 	var parsed struct {
@@ -564,7 +566,7 @@ func sendTracked(httpClient *http.Client, req *http.Request) (*http.Response, er
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
 		WroteHeaders: func() { sent.Store(true) },
 	}))
-	resp, err := httpClient.Do(req)
+	resp, err := runreport.Do(httpClient, req)
 	if err != nil {
 		if sent.Load() {
 			return nil, fmt.Errorf("http request: %w: %w", errResponseLost, err)
@@ -572,6 +574,27 @@ func sendTracked(httpClient *http.Client, req *http.Request) (*http.Response, er
 		return nil, fmt.Errorf("http request: %w: %w", errRequestNotSent, err)
 	}
 	return resp, nil
+}
+
+// exchangeFailureReason separates an exchange that never reached the token
+// endpoint, an outage, from one the endpoint refused, a credential problem.
+func exchangeFailureReason(err error) string {
+	if reason := runreport.FailureReason(err); reason != "" {
+		return reason
+	}
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return "network"
+	}
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && (apiErr.StatusCode == http.StatusTooManyRequests || apiErr.StatusCode >= http.StatusInternalServerError) {
+		return "http_error"
+	}
+	return "auth"
+}
+
+func responseReadError(err error, status int) error {
+	return runreport.ReadFailure(fmt.Errorf("read response: %w: %w", errResponseLost, err), status)
 }
 
 // doOnce executes a single HTTP request (no retry).
@@ -605,7 +628,7 @@ func (c *Client) doOnce(ctx context.Context, method, rawURL, accessToken string,
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read response: %w: %w", errResponseLost, err)
+		return nil, responseReadError(err, resp.StatusCode)
 	}
 
 	if resp.StatusCode >= http.StatusBadRequest {
@@ -706,7 +729,7 @@ func PostAnonymous(ctx context.Context, baseURL, path string, body json.RawMessa
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read response: %w: %w", errResponseLost, err)
+		return nil, responseReadError(err, resp.StatusCode)
 	}
 
 	if resp.StatusCode >= http.StatusBadRequest {
@@ -769,7 +792,7 @@ func MintLoginCLILink(ctx context.Context, baseURL, saToken, destination string,
 	req.Header.Set("Authorization", "Bearer "+saToken)
 	setStandardHeaders(req)
 
-	resp, err := httpClient.Do(req)
+	resp, err := runreport.Do(httpClient, req)
 	if err != nil {
 		return nil, fmt.Errorf("http request: %w", err)
 	}
@@ -777,7 +800,7 @@ func MintLoginCLILink(ctx context.Context, baseURL, saToken, destination string,
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
+		return nil, runreport.ReadFailure(fmt.Errorf("read response: %w", err), resp.StatusCode)
 	}
 
 	if resp.StatusCode >= http.StatusBadRequest {

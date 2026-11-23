@@ -183,19 +183,28 @@ func (idx *PathIndex) Len() int {
 
 // Lookup returns the path template matching the given method and path, which
 // may be given in either template form ("/v1/environments/{environment_id}/campaigns")
-// or resolved form ("/v1/environments/123/campaigns").
+// or resolved form ("/v1/environments/123/campaigns"). When several match, the
+// one with the most literal segments wins (".../metrics/all_deliveries" over
+// ".../metrics/{name}"), so the answer doesn't depend on the spec's map order.
 func (idx *PathIndex) Lookup(httpMethod, path string) (string, bool) {
 	reqSegs := splitPathSegments(path)
+	best, bestLiterals := "", -1
 	for i := range idx.entries {
 		e := &idx.entries[i]
-		if e.httpMethod != strings.ToUpper(httpMethod) {
+		if e.httpMethod != strings.ToUpper(httpMethod) || !segmentsMatch(e.segments, reqSegs) {
 			continue
 		}
-		if segmentsMatch(e.segments, reqSegs) {
-			return e.path, true
+		literals := 0
+		for _, seg := range e.segments {
+			if !isPlaceholderSegment(seg) {
+				literals++
+			}
+		}
+		if literals > bestLiterals || (literals == bestLiterals && e.path < best) {
+			best, bestLiterals = e.path, literals
 		}
 	}
-	return "", false
+	return best, bestLiterals >= 0
 }
 
 // MethodsFor returns the HTTP methods the index holds for the given path

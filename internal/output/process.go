@@ -3,6 +3,8 @@ package output
 import (
 	"encoding/json"
 	"io"
+
+	"github.com/customerio/cli/internal/runreport"
 )
 
 // FprintProcess applies --jq filtering to data and prints to w. When raw is
@@ -11,7 +13,7 @@ func FprintProcess(w io.Writer, data json.RawMessage, jqExpr string, raw bool) e
 	if jqExpr != "" {
 		results, err := ApplyJQ(data, jqExpr)
 		if err != nil {
-			return err
+			return runreport.WithReason(err, "jq_error")
 		}
 		if raw {
 			return FprintRaw(w, results)

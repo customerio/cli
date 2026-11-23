@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/customerio/cli/internal/filelock"
+	"github.com/customerio/cli/internal/runreport"
 	"github.com/customerio/cli/internal/useragent"
 )
 
@@ -335,7 +336,7 @@ func downloadSkills(ctx context.Context, httpClient *http.Client, url, userAgent
 		req.Header.Set("If-None-Match", etag)
 	}
 
-	resp, err := httpClient.Do(req)
+	resp, err := runreport.Do(httpClient, req)
 	if err != nil {
 		return nil, "", fmt.Errorf("fetch %s: %w", url, err)
 	}
@@ -347,11 +348,11 @@ func downloadSkills(ctx context.Context, httpClient *http.Client, url, userAgent
 	case http.StatusOK:
 		body, err := io.ReadAll(io.LimitReader(resp.Body, skillsDownloadSize))
 		if err != nil {
-			return nil, "", fmt.Errorf("read response from %s: %w", url, err)
+			return nil, "", runreport.ReadFailure(fmt.Errorf("read response from %s: %w", url, err), resp.StatusCode)
 		}
 		return body, resp.Header.Get("ETag"), nil
 	default:
-		return nil, "", fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+		return nil, "", runreport.WithHTTPStatus(fmt.Errorf("HTTP %d from %s", resp.StatusCode, url), resp.StatusCode)
 	}
 }
 

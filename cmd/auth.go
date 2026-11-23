@@ -13,6 +13,7 @@ import (
 	"github.com/customerio/cli/internal/client"
 	"github.com/customerio/cli/internal/clipboard"
 	"github.com/customerio/cli/internal/output"
+	"github.com/customerio/cli/internal/runreport"
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -206,6 +207,7 @@ re-authenticates whichever profile is currently selected (see 'cio profile').`,
 			// close, so the prompt would hang. Say what works instead.
 			if !canPromptForToken(cmd.InOrStdin()) {
 				err := fmt.Errorf("no terminal to paste a token into")
+				runreport.Reason("auth")
 				output.PrintError(output.CodeValidationError, err.Error(), map[string]any{
 					"hint": "Run 'cio auth login --from-clipboard --wait' and have the user copy the token from the token page (see 'cio auth login --help'). To pipe a token in, use 'cio auth login --with-token'.",
 				})
@@ -227,6 +229,7 @@ re-authenticates whichever profile is currently selected (see 'cio profile').`,
 
 		if token == "" {
 			err := fmt.Errorf("token must not be empty")
+			runreport.Reason("auth")
 			output.PrintError(output.CodeValidationError, err.Error(), nil)
 			return err
 		}
@@ -236,6 +239,7 @@ re-authenticates whichever profile is currently selected (see 'cio profile').`,
 				client.ServiceAccountTokenPrefix,
 				client.SandboxServiceAccountTokenPrefix,
 				token[:min(len(token), 10)])
+			runreport.Reason("auth")
 			output.PrintError(output.CodeValidationError, err.Error(), map[string]any{
 				"hint": fmt.Sprintf("Service account tokens start with sa_live_. Copy the token from the token page (%s) or run cio auth signup for a new account.",
 					resolveCLILoginURL(resolveLoginBaseURL(cmd))),

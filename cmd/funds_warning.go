@@ -13,6 +13,7 @@ import (
 	"github.com/customerio/cli/internal/client"
 	"github.com/customerio/cli/internal/filelock"
 	"github.com/customerio/cli/internal/routes"
+	"github.com/customerio/cli/internal/runreport"
 	"github.com/customerio/cli/internal/validate"
 	"github.com/spf13/cobra"
 )
@@ -68,7 +69,7 @@ func warnIfFundsLow(cmd *cobra.Command, sendPath, saToken string) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	ctx, cancel := context.WithTimeout(ctx, fundsCheckTimeout)
+	ctx, cancel := context.WithTimeout(runreport.Untracked(ctx), fundsCheckTimeout)
 	defer cancel()
 	c := fundsCheckClient(cmd, saToken)
 

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/customerio/cli/internal/runreport"
 )
 
 // Exit codes.
@@ -49,11 +51,24 @@ type CLIError struct {
 	Details any    `json:"details,omitempty"`
 }
 
+var printedExitCode int
+
 // PrintError writes a structured JSON error to stderr and returns the
 // appropriate exit code.
 func PrintError(code, message string, details any) int {
+	runreport.ErrorCode(code)
+	if code == CodeAuthError {
+		runreport.Reason("auth")
+	}
 	FprintError(os.Stderr, code, message, details)
-	return ExitCodeForError(code)
+	printedExitCode = ExitCodeForError(code)
+	return printedExitCode
+}
+
+// PrintedExitCode returns the exit code of the last error PrintError wrote,
+// or 0 when it has written none.
+func PrintedExitCode() int {
+	return printedExitCode
 }
 
 // FprintError writes a structured JSON error to w.
