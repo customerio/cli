@@ -120,10 +120,16 @@ config file, even when the same token is already stored there. Explicit
 `auth login`, signup verification, logout, and profile management still save
 or remove credentials when requested. API specs and other caches may be written.
 
+`CIO_TOKEN` sessions cache their short-lived JWTs in private files under
+`~/.cio/cache/tokens/`, separate from saved credentials. Cache keys hash the
+service account token, API URL, and requested scopes. Concurrent commands share
+one exchange, and tokens refresh 60 seconds before expiry or after a 401.
+
 Set `CIO_CONFIG` to a separate file when another account must not share your
 stored profiles. An empty or unset value uses `~/.cio/config.json`. Relative
 paths resolve from the current directory. The override applies to credential
-reads, writes, JWT caching, and profile commands. Other caches stay in `~/.cio`.
+reads, writes, stored-profile JWT caching, and profile commands. Other caches
+stay in `~/.cio`.
 
 ```bash
 CIO_CONFIG="$HOME/.cio/agent.json" cio auth login --from-clipboard --wait

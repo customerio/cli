@@ -384,3 +384,32 @@ func TestExtractPaginationMeta_Continuation(t *testing.T) {
 }
 
 func ptr(s string) *string { return &s }
+
+// The Pipelines event logs return {"first", "last"} and page with after=last,
+// setting last only on a full page. The walk must follow after and stop on a
+// page without last, not walk page numbers the endpoint ignores.
+func TestPageAll_FollowsEventLogAfterCursor(t *testing.T) {
+	var requests []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.URL.RawQuery)
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Query().Get("after") {
+		case "":
+			fmt.Fprint(w, `{"events": [1, 2], "meta": {"continuation": {"first": "a", "last": "b"}}}`)
+		case "b":
+			fmt.Fprint(w, `{"events": [3], "meta": {"continuation": {"first": "c"}}}`)
+		default:
+			t.Errorf("unexpected after=%q", r.URL.Query().Get("after"))
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	lines := pageAllLines(t, server, 0)
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 pages, got %d: %v", len(lines), requests)
+	}
+	last := requests[len(requests)-1]
+	if !strings.Contains(last, "after=b") || strings.Contains(last, "page=") {
+		t.Errorf("last request = %q; want after=b and no page", last)
+	}
+}

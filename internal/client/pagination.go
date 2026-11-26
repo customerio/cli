@@ -35,6 +35,10 @@ type paginationMeta struct {
 	// "continuation" query param instead of page numbers; nil when the
 	// response carries none, "" on the last page.
 	Continuation *string
+	// CursorParam is the query param that sends Continuation back:
+	// "continuation" for a string cursor, "after" for the {first, last}
+	// cursor of the Pipelines source and destination event logs.
+	CursorParam string
 }
 
 const maxAutoPages = 10000
@@ -62,13 +66,14 @@ func (c *Client) PageAll(cfg PageAllConfig) error {
 	// Set once a response carries a cursor; from then on the cursor, not the
 	// page number, selects the next page.
 	cursor := ""
+	cursorParam := ""
 	seen := map[string]bool{}
 
 	for {
 		params := copyParams(cfg.Params)
 		if cursor != "" {
 			delete(params, "page")
-			params["continuation"] = cursor
+			params[cursorParam] = cursor
 		} else {
 			params["page"] = strconv.Itoa(page)
 		}
@@ -120,6 +125,7 @@ func (c *Client) PageAll(cfg PageAllConfig) error {
 			}
 			seen[next] = true
 			cursor = next
+			cursorParam = meta.CursorParam
 			if page >= cfg.StartPage+maxAutoPages-1 {
 				return nil
 			}
@@ -174,6 +180,18 @@ func extractPaginationMeta(data json.RawMessage, limit int) paginationMeta {
 	// the from returned beside it and repeats rows either way.
 	if m := nestedObject(obj, "meta"); m != nil {
 		meta.Continuation = stringField(m, "continuation")
+		meta.CursorParam = "continuation"
+		// The event logs return {"first", "last"} and page forward with
+		// after=last. They set last only on a full page, so a missing last
+		// is the end.
+		if c := nestedObject(m, "continuation"); c != nil {
+			last := ""
+			if v := stringField(c, "last"); v != nil {
+				last = *v
+			}
+			meta.Continuation = &last
+			meta.CursorParam = "after"
+		}
 	}
 	if pagination := nestedObject(obj, "meta", "pagination"); pagination != nil {
 		if meta.TotalPages == nil {

@@ -1218,6 +1218,81 @@ func TestAuthSignupVerify_EURegionViaUSEndpoint(t *testing.T) {
 	}
 }
 
+func TestAuthSignupStart_DropsDataCenter(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("CIO_TOKEN", "")
+
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		if _, ok := got["data_center"]; ok {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"errors":[{"detail":"unknown field data_center"}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"message":"check your email"}`))
+	}))
+	defer server.Close()
+
+	_, stderr, err := executeCommand("auth", "signup", "start",
+		"--api-url", server.URL,
+		"--json", `{"email":"agent+demo@example.com","data_center":"eu"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got["email"] != "agent+demo@example.com" || len(got) != 1 {
+		t.Errorf("server got %v; want only the email", got)
+	}
+	if !strings.Contains(stderr, "FIELD_MOVED_TO_VERIFY") || !strings.Contains(stderr, `\"eu\"`) {
+		t.Errorf("stderr = %q; want a warning naming verify and the value", stderr)
+	}
+}
+
+func TestAuthSignupStart_NamesTheAcceptedRegionsForAValueVerifyRejects(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CIO_TOKEN", "")
+
+	for _, dc := range []string{`null`, `"asia"`, `{"region":"eu"}`} {
+		t.Run(dc, func(t *testing.T) {
+			_, stderr, err := executeCommand("auth", "signup", "start",
+				"--api-url", "https://example.invalid", "--dry-run",
+				"--json", `{"email":"agent+demo@example.com","data_center":`+dc+`}`)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !strings.Contains(stderr, `\"us\" or \"eu\"`) || strings.Contains(stderr, "asia") || strings.Contains(stderr, "null to") {
+				t.Errorf("stderr = %q; want the warning to name \"us\" or \"eu\", not the value passed", stderr)
+			}
+		})
+	}
+}
+
+func TestAuthSignupStart_DryRunShowsBodyWithoutDataCenter(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("CIO_TOKEN", "")
+
+	stdout, _, err := executeCommand("auth", "signup", "start",
+		"--api-url", "https://example.invalid",
+		"--json", `{"email":"agent+demo@example.com","data_center":"us"}`,
+		"--dry-run")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var result struct {
+		Body map[string]any `json:"body"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid JSON: %v\nstdout: %s", err, stdout)
+	}
+	if _, ok := result.Body["data_center"]; ok {
+		t.Errorf("dry-run body still has data_center: %v", result.Body)
+	}
+}
+
 func TestAuthSignupStart_DryRun(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
