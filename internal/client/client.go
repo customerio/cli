@@ -116,6 +116,7 @@ type Client struct {
 	serviceAccountToken  string
 	accessToken          string
 	accessTokenExpiresAt time.Time
+	rejectedAccessToken  string
 	readOnly             bool
 	scopes               []string
 	httpClient           *http.Client
@@ -205,8 +206,21 @@ func (c *Client) EnsureAccessToken(ctx context.Context) (string, error) {
 		return "", runreport.WithReason(fmt.Errorf("no service account token configured"), "auth")
 	}
 
-	// Check the file cache.
-	if cached := CachedAccessTokenForServiceAccount(c.serviceAccountToken, c.readOnly, c.scopes); cached != "" {
+	envToken := c.serviceAccountToken == os.Getenv("CIO_TOKEN")
+	cachePath, unlock := c.lockEnvTokenCache(ctx)
+	defer unlock()
+	if cachePath != "" {
+		var cached envTokenCache
+		data, err := os.ReadFile(cachePath)
+		if err == nil && json.Unmarshal(data, &cached) == nil &&
+			cached.AccessToken != "" && cached.AccessToken != c.rejectedAccessToken &&
+			time.Now().Before(cached.ExpiresAt.Add(-60*time.Second)) {
+			c.accessToken = cached.AccessToken
+			c.accessTokenExpiresAt = cached.ExpiresAt
+			return c.accessToken, nil
+		}
+	}
+	if cached := CachedAccessTokenForServiceAccount(c.serviceAccountToken, c.readOnly, c.scopes); !envToken && cached != "" && cached != c.rejectedAccessToken {
 		c.accessToken = cached
 		// File cache already applies 60s buffer, so set a conservative in-memory expiry.
 		c.accessTokenExpiresAt = time.Now().Add(55 * time.Minute)
@@ -220,6 +234,7 @@ func (c *Client) EnsureAccessToken(ctx context.Context) (string, error) {
 	}
 
 	c.accessToken = token
+	c.rejectedAccessToken = ""
 	// Prefer the JWT's own exp claim; fall back to expires_in from the
 	// token response; last resort is 55 minutes.
 	if exp, err := parseJWTExpiry(token); err == nil {
@@ -231,14 +246,20 @@ func (c *Client) EnsureAccessToken(ctx context.Context) (string, error) {
 	}
 
 	// Cache for future invocations.
-	_ = CacheAccessTokenForServiceAccount(c.serviceAccountToken, token, expiresIn, c.readOnly, c.scopes)
+	if envToken {
+		if cachePath != "" {
+			c.writeEnvTokenCache(cachePath)
+		}
+	} else {
+		_ = CacheAccessTokenForServiceAccount(c.serviceAccountToken, token, expiresIn, c.readOnly, c.scopes)
+	}
 
 	return token, nil
 }
 
-// clearAccessToken resets the cached token so the next call to
-// EnsureAccessToken will re-authenticate.
+// Remember the rejected JWT so EnsureAccessToken cannot reload it from disk.
 func (c *Client) clearAccessToken() {
+	c.rejectedAccessToken = c.accessToken
 	c.accessToken = ""
 	c.accessTokenExpiresAt = time.Time{}
 }

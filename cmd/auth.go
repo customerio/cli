@@ -473,7 +473,10 @@ var authSignupStartCmd = &cobra.Command{
 	Short: "Email a 6-digit verification code to the given address",
 	Long: `Send a verification code to the given email address.
 
-  cio auth signup start --json '{"email":"you@example.com"}'`,
+  cio auth signup start --json '{"email":"you@example.com"}'
+
+Only the email goes here. The data center, company name, and the user's
+name go on 'cio auth signup verify'.`,
 	Args: cobra.NoArgs,
 	RunE: runAuthSignupStart,
 }
@@ -492,6 +495,9 @@ var authSignupVerifyCmd = &cobra.Command{
     "data_center": "us"
   }'
 
+data_center is required and is "us" or "eu". It can't be changed once the
+account exists.
+
 On success, your credentials are saved automatically and you're ready
 to use the CLI.`,
 	Args: cobra.NoArgs,
@@ -499,7 +505,7 @@ to use the CLI.`,
 }
 
 func runAuthSignupStart(cmd *cobra.Command, args []string) error {
-	return runSignupRequest(cmd, "/v1/account_signup")
+	return runSignupStart(cmd, "/v1/account_signup")
 }
 
 func runAuthSignupVerify(cmd *cobra.Command, args []string) error {
@@ -605,9 +611,10 @@ func saveSignupCredentials(response json.RawMessage, requestBody []byte, baseURL
 	return client.WriteCredentials(creds)
 }
 
-// runSignupRequest handles both signup POSTs: validates --json, resolves the
-// base URL, honors --dry-run, and prints the response as JSON.
-func runSignupRequest(cmd *cobra.Command, path string) error {
+// runSignupStart sends signup start: validates --json, drops data_center
+// (verify takes it), resolves the base URL, honors --dry-run, and prints the
+// response as JSON. Verify has its own handler because it saves credentials.
+func runSignupStart(cmd *cobra.Command, path string) error {
 	body, err := GetJSONBody(cmd)
 	if err != nil {
 		output.PrintError(output.CodeValidationError, err.Error(), map[string]string{
@@ -620,6 +627,8 @@ func runSignupRequest(cmd *cobra.Command, path string) error {
 		output.PrintError(output.CodeValidationError, err.Error(), nil)
 		return err
 	}
+
+	body = dropSignupStartDataCenter(cmd, body)
 
 	baseURL := resolveSignupBaseURL(cmd)
 	timeout, _ := cmd.Flags().GetDuration("timeout")
@@ -643,6 +652,36 @@ func runSignupRequest(cmd *cobra.Command, path string) error {
 	}
 
 	return printWriteResult(cmd, "POST", result, GetJQFlag(cmd))
+}
+
+// dropSignupStartDataCenter removes data_center from a signup start body. The
+// start endpoint rejects it as an unknown field, yet agents send it there
+// because the region is part of signing up; it belongs on verify. Dropping it
+// here, with a warning that says where it goes, saves a failed request.
+func dropSignupStartDataCenter(cmd *cobra.Command, body json.RawMessage) json.RawMessage {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return body
+	}
+	dc, ok := fields["data_center"]
+	if !ok {
+		return body
+	}
+	delete(fields, "data_center")
+	stripped, err := json.Marshal(fields)
+	if err != nil {
+		return body
+	}
+	// Repeat the agent's value only when verify will accept it, so a null or a
+	// wrong region isn't passed along as advice.
+	pass := `"us" or "eu"`
+	var region string
+	if json.Unmarshal(dc, &region) == nil && (strings.EqualFold(region, "us") || strings.EqualFold(region, "eu")) {
+		pass = fmt.Sprintf("%q", strings.ToLower(region))
+	}
+	printWarning(cmd, "FIELD_MOVED_TO_VERIFY", fmt.Sprintf(
+		"removed data_center from this request: signup start takes only the email. Pass \"data_center\": %s to 'cio auth signup verify' instead", pass))
+	return stripped
 }
 
 // loadStoredServiceAccountToken reads the saved sa_live_ token from
